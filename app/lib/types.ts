@@ -51,6 +51,19 @@ export interface Bomb {
 }
 
 /**
+ * Breakable wall interface for the 300m challenge
+ */
+export interface BreakableWall {
+  body: any;            // Matter.js body reference
+  x: number;            // X position (center)
+  y: number;            // Y position (center)
+  width: number;        // Wall width
+  height: number;       // Wall height
+  hits: number;         // Number of times the ball has hit it (0-3)
+  maxHits: number;      // Maximum hits before breaking (3)
+}
+
+/**
  * Custom level interface
  */
 export interface Level {

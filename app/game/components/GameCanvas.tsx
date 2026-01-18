@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import Matter from 'matter-js';
-import { Controls, Platform, Bomb } from '@/app/lib/types';
+import { Controls, Platform, Bomb, BreakableWall } from '@/app/lib/types';
 
 interface GameCanvasProps {
   controls: Controls;
@@ -27,6 +27,18 @@ export default function GameCanvas({
   mode,
   customPlatforms = [],
 }: GameCanvasProps) {
+  // Constants - defined first before refs that use them
+  const BALL_RADIUS = 20;
+  const PLATFORM_HEIGHT = 20;
+  const INITIAL_SCROLL_SPEED = 2; // Fixed starting speed for all machines (slowed down from 4)
+  const SPEED_INCREASE_RATE = 0.002; // Gradual acceleration rate
+  const MAX_SCROLL_SPEED = 10; // Cap maximum speed
+  const PLATFORM_SPAWN_Y = 100; // Distance below screen to spawn platforms
+  const JUMP_FORCE = 0.18; // Upward impulse force for jumping
+  const BOMB_RADIUS = 15; // Bomb size
+  const BOMB_SPAWN_CHANCE = 0.3; // 30% chance to spawn bomb on a platform
+  
+  // Refs - now that constants are defined
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const ballRef = useRef<Matter.Body | null>(null);
@@ -45,17 +57,18 @@ export default function GameCanvas({
   const controlsRef = useRef(controls);
   // Track last frame time for delta calculation
   const lastFrameTimeRef = useRef<number>(0);
-
-  // Constants
-  const BALL_RADIUS = 20;
-  const PLATFORM_HEIGHT = 20;
-  const INITIAL_SCROLL_SPEED = 2; // Fixed starting speed for all machines (slowed down from 4)
-  const SPEED_INCREASE_RATE = 0.002; // Gradual acceleration rate
-  const MAX_SCROLL_SPEED = 10; // Cap maximum speed
-  const PLATFORM_SPAWN_Y = 100; // Distance below screen to spawn platforms
-  const JUMP_FORCE = 0.18; // Upward impulse force for jumping
-  const BOMB_RADIUS = 15; // Bomb size
-  const BOMB_SPAWN_CHANCE = 0.3; // 30% chance to spawn bomb on a platform
+  
+  // 300m Challenge State - track if the special platform has been created and the wall state
+  const challenge300Ref = useRef({
+    platformCreated: false,    // Has the 300m platform been spawned?
+    isOnPlatform: false,       // Is the ball currently on the 300m platform?
+    wallBroken: false,         // Has the wall been broken?
+    platformId: '',            // ID of the 300m platform for collision detection
+  });
+  // Track the breakable wall in the 300m challenge
+  const breakableWallRef = useRef<BreakableWall | null>(null);
+  // Store original scroll speed to restore after challenge
+  const originalScrollSpeedRef = useRef<number>(INITIAL_SCROLL_SPEED);
   
   // Store callbacks in refs to prevent re-creation
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
@@ -265,6 +278,16 @@ export default function GameCanvas({
 
     scrollDistanceRef.current = 0;
     scrollSpeedRef.current = INITIAL_SCROLL_SPEED;
+    
+    // Reset 300m challenge state
+    challenge300Ref.current = {
+      platformCreated: false,
+      isOnPlatform: false,
+      wallBroken: false,
+      platformId: '',
+    };
+    breakableWallRef.current = null;
+    originalScrollSpeedRef.current = INITIAL_SCROLL_SPEED;
   }, [createBombOnPlatform]);
 
   /**
@@ -346,12 +369,103 @@ export default function GameCanvas({
       hasJumpedRef.current = false;
     }
 
+    // 300m Challenge Logic - Check if ball is on the challenge platform
+    if (challenge300Ref.current.platformCreated && !challenge300Ref.current.wallBroken) {
+      // Find the challenge platform
+      const challengePlatform = platformsRef.current.find(p => p.label === 'challenge300');
+      
+      if (challengePlatform) {
+        // Check if the platform is in the playable area (not below screen)
+        const platformInView = challengePlatform.position.y < height;
+        
+        // Check if ball is on the challenge platform
+        const ballBottom = ball.position.y + BALL_RADIUS;
+        const platformTop = challengePlatform.bounds.min.y;
+        const verticalDistance = Math.abs(ballBottom - platformTop);
+        
+        const ballLeft = ball.position.x - BALL_RADIUS;
+        const ballRight = ball.position.x + BALL_RADIUS;
+        const platformLeft = challengePlatform.bounds.min.x;
+        const platformRight = challengePlatform.bounds.max.x;
+        const horizontalOverlap = ballRight > platformLeft && ballLeft < platformRight;
+        
+        // More lenient detection - just check if ball is near platform and moving slowly
+        const isOnChallengePlatform = verticalDistance < 20 && horizontalOverlap && Math.abs(ball.velocity.y) < 10;
+        
+        if (isOnChallengePlatform && platformInView && !challenge300Ref.current.isOnPlatform) {
+          // Ball just landed on the challenge platform - stop scrolling!
+          challenge300Ref.current.isOnPlatform = true;
+          originalScrollSpeedRef.current = scrollSpeedRef.current;
+          scrollSpeedRef.current = 0;
+          console.log('Ball landed on 300m platform - scrolling stopped!');
+        }
+      }
+      
+      // Check collision with breakable wall
+      if (breakableWallRef.current && breakableWallRef.current.hits < breakableWallRef.current.maxHits) {
+        const wall = breakableWallRef.current;
+        const wallBody = wall.body;
+        
+        // Use circle-to-rectangle collision detection (more lenient)
+        const wallCenterX = wallBody.position.x;
+        const wallCenterY = wallBody.position.y;
+        const wallHalfWidth = wall.width / 2;
+        const wallHalfHeight = wall.height / 2;
+        
+        // Find the closest point on the rectangle to the ball's center
+        const closestX = Math.max(wallCenterX - wallHalfWidth, Math.min(ball.position.x, wallCenterX + wallHalfWidth));
+        const closestY = Math.max(wallCenterY - wallHalfHeight, Math.min(ball.position.y, wallCenterY + wallHalfHeight));
+        
+        // Calculate distance from ball center to closest point
+        const distanceX = ball.position.x - closestX;
+        const distanceY = ball.position.y - closestY;
+        const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+        
+        // Check if ball is colliding (with some padding for easier hits)
+        const isColliding = distanceSquared < (BALL_RADIUS + 5) * (BALL_RADIUS + 5);
+        
+        // More lenient velocity check - any movement counts
+        const hasSignificantVelocity = Math.abs(ball.velocity.x) > 1 || Math.abs(ball.velocity.y) > 1;
+        
+        if (isColliding && hasSignificantVelocity) {
+          // Check if this is a new hit (prevent counting multiple times per collision)
+          const timeSinceLastHit = Date.now() - (wall.body.lastHitTime || 0);
+          if (timeSinceLastHit > 500) { // 500ms cooldown between hits
+            wall.hits++;
+            wall.body.lastHitTime = Date.now();
+            console.log(`Wall hit ${wall.hits}/${wall.maxHits}!`);
+            
+            // Visual feedback - add a small impulse to bounce the ball back
+            const bounceX = ball.position.x < wallCenterX ? -0.1 : 0.1;
+            Matter.Body.applyForce(ball, ball.position, { x: bounceX, y: -0.05 });
+            
+            // Check if wall should break
+            if (wall.hits >= wall.maxHits) {
+              // Wall broken! Remove it and resume scrolling
+              Matter.World.remove(engineRef.current!.world, wallBody);
+              breakableWallRef.current = null;
+              challenge300Ref.current.wallBroken = true;
+              scrollSpeedRef.current = originalScrollSpeedRef.current || INITIAL_SCROLL_SPEED;
+              console.log('Wall broken! Scrolling resumed!');
+            }
+          }
+        }
+      }
+    }
+
     // Scroll platforms upward and move bombs with them
     platformsRef.current.forEach(platform => {
-      Matter.Body.setPosition(platform, {
-        x: platform.position.x,
-        y: platform.position.y - scrollSpeedRef.current,
-      });
+      // Don't scroll the challenge platform if the ball is on it and the wall isn't broken
+      const isChallengePlatformStopped = platform.label === 'challenge300' && 
+                                         challenge300Ref.current.isOnPlatform && 
+                                         !challenge300Ref.current.wallBroken;
+      
+      if (!isChallengePlatformStopped) {
+        Matter.Body.setPosition(platform, {
+          x: platform.position.x,
+          y: platform.position.y - scrollSpeedRef.current,
+        });
+      }
       
       // Check if ball reached finish platform in level mode
       if (mode === 'level' && platform.label === 'finish') {
@@ -371,17 +485,105 @@ export default function GameCanvas({
       bomb.y -= scrollSpeedRef.current;
     });
 
-    // Update scroll distance (speed stays constant)
+    // Move breakable wall with its platform (if it exists)
+    // Only move it before the player lands on the challenge platform OR after wall is broken
+    if (breakableWallRef.current) {
+      const wall = breakableWallRef.current;
+      const shouldScroll = !challenge300Ref.current.isOnPlatform || challenge300Ref.current.wallBroken;
+      
+      if (shouldScroll && scrollSpeedRef.current > 0) {
+        Matter.Body.setPosition(wall.body, {
+          x: wall.body.position.x,
+          y: wall.body.position.y - scrollSpeedRef.current,
+        });
+        // Update tracking coordinates
+        wall.y -= scrollSpeedRef.current;
+      }
+    }
+
+    // Update scroll distance
     scrollDistanceRef.current += scrollSpeedRef.current;
-    // Keep scroll speed constant - no acceleration
-    scrollSpeedRef.current = INITIAL_SCROLL_SPEED;
+    // Keep scroll speed constant - no acceleration (unless we're in a special state like the 300m challenge)
+    // Only reset to initial speed if we're not stopped for the challenge
+    const isStopped = challenge300Ref.current.isOnPlatform && !challenge300Ref.current.wallBroken;
+    if (!isStopped) {
+      scrollSpeedRef.current = INITIAL_SCROLL_SPEED;
+    }
     onDistanceUpdateRef.current(Math.floor(scrollDistanceRef.current / 10));
 
     // Only manage platforms dynamically in infinite mode
     if (mode === 'infinite') {
+      // Check if we should create the 300m challenge platform
+      const currentDistance = Math.floor(scrollDistanceRef.current / 10);
+      if (currentDistance >= 300 && !challenge300Ref.current.platformCreated) {
+        // Create the special wide platform near the bottom of screen (so player sees it coming)
+        const platformWidth = width * 0.8; // 80% of screen width - much wider!
+        const platformX = width / 2;
+        // Place it near bottom of screen so player can see it approaching
+        const platformY = height + 200; // Just below the visible screen
+        
+        const challengePlatform = Matter.Bodies.rectangle(
+          platformX,
+          platformY,
+          platformWidth,
+          PLATFORM_HEIGHT,
+          {
+            isStatic: true,
+            label: 'challenge300',
+            friction: 0.8,
+          }
+        );
+        
+        platformsRef.current.push(challengePlatform);
+        Matter.World.add(engineRef.current!.world, challengePlatform);
+        
+        // Create the breakable wall in the middle of the platform
+        // Wall sits ON TOP of the platform
+        const wallWidth = 30;
+        const wallHeight = 60;
+        const wallX = platformX;
+        const wallY = platformY - PLATFORM_HEIGHT / 2 - wallHeight / 2;
+        
+        const wall = Matter.Bodies.rectangle(
+          wallX,
+          wallY,
+          wallWidth,
+          wallHeight,
+          {
+            isStatic: true,
+            label: 'breakableWall',
+            friction: 0.5,
+            restitution: 0.3, // Less bouncy so ball doesn't fly away
+          }
+        );
+        
+        Matter.World.add(engineRef.current!.world, wall);
+        
+        // Initialize the breakable wall tracking
+        breakableWallRef.current = {
+          body: wall,
+          x: wallX,
+          y: wallY,
+          width: wallWidth,
+          height: wallHeight,
+          hits: 0,
+          maxHits: 3,
+        };
+        
+        challenge300Ref.current.platformCreated = true;
+        challenge300Ref.current.platformId = `challenge-${Date.now()}`;
+        
+        console.log('300m Challenge Platform Created!');
+      }
+      
       // Remove platforms that scrolled off screen (above) and their associated bombs
       const platformIdsToRemove: number[] = [];
       platformsRef.current = platformsRef.current.filter((platform, index) => {
+        // Don't remove the 300m platform until the challenge is complete
+        if (platform.label === 'challenge300' && !challenge300Ref.current.wallBroken) {
+          return true;
+        }
+        
         if (platform.position.y < -PLATFORM_HEIGHT) {
           Matter.World.remove(engineRef.current!.world, platform);
           platformIdsToRemove.push(index);
@@ -394,38 +596,42 @@ export default function GameCanvas({
       bombsRef.current = bombsRef.current.filter(bomb => bomb.y > -BOMB_RADIUS * 2);
 
       // Spawn new platforms at bottom (with dynamic difficulty)
-      const lowestPlatform = platformsRef.current.reduce((lowest, p) => 
-        p.position.y > lowest.position.y ? p : lowest
-      , platformsRef.current[0]);
+      // Don't spawn new platforms if we're in the 300m challenge and haven't broken the wall
+      const shouldSpawnPlatforms = !challenge300Ref.current.platformCreated || challenge300Ref.current.wallBroken;
+      
+      if (shouldSpawnPlatforms) {
+        const lowestPlatform = platformsRef.current.reduce((lowest, p) => 
+          p.position.y > lowest.position.y ? p : lowest
+        , platformsRef.current[0]);
 
-      if (lowestPlatform && lowestPlatform.position.y < height + PLATFORM_SPAWN_Y) {
-        const currentDistance = Math.floor(scrollDistanceRef.current / 10);
-        const difficulty = getDifficultySettings(currentDistance);
-        
-        const platformWidth = Math.random() * (difficulty.platformMaxWidth - difficulty.platformMinWidth) + difficulty.platformMinWidth;
-        const platformX = Math.random() * (width - platformWidth) + platformWidth / 2;
-        const gap = difficulty.platformGapMin + Math.random() * (difficulty.platformGapMax - difficulty.platformGapMin);
-        const platformY = lowestPlatform.position.y + gap;
-        
-        const newPlatform = Matter.Bodies.rectangle(
-          platformX,
-          platformY,
-          platformWidth,
-          PLATFORM_HEIGHT,
-          {
-            isStatic: true,
-            label: 'platform',
-            friction: 0.8,
+        if (lowestPlatform && lowestPlatform.position.y < height + PLATFORM_SPAWN_Y) {
+          const difficulty = getDifficultySettings(currentDistance);
+          
+          const platformWidth = Math.random() * (difficulty.platformMaxWidth - difficulty.platformMinWidth) + difficulty.platformMinWidth;
+          const platformX = Math.random() * (width - platformWidth) + platformWidth / 2;
+          const gap = difficulty.platformGapMin + Math.random() * (difficulty.platformGapMax - difficulty.platformGapMin);
+          const platformY = lowestPlatform.position.y + gap;
+          
+          const newPlatform = Matter.Bodies.rectangle(
+            platformX,
+            platformY,
+            platformWidth,
+            PLATFORM_HEIGHT,
+            {
+              isStatic: true,
+              label: 'platform',
+              friction: 0.8,
+            }
+          );
+          
+          platformsRef.current.push(newPlatform);
+          Matter.World.add(engineRef.current!.world, newPlatform);
+
+          // Maybe spawn a bomb on the new platform
+          const newBomb = createBombOnPlatform(newPlatform, `platform-${Date.now()}`);
+          if (newBomb) {
+            bombsRef.current.push(newBomb);
           }
-        );
-        
-        platformsRef.current.push(newPlatform);
-        Matter.World.add(engineRef.current!.world, newPlatform);
-
-        // Maybe spawn a bomb on the new platform
-        const newBomb = createBombOnPlatform(newPlatform, `platform-${Date.now()}`);
-        if (newBomb) {
-          bombsRef.current.push(newBomb);
         }
       }
     }
@@ -470,6 +676,9 @@ export default function GameCanvas({
       } else if (platform.label === 'wall') {
         ctx.fillStyle = '#228b22';
         ctx.globalAlpha = 0.7;
+      } else if (platform.label === 'challenge300') {
+        // Special color for the 300m challenge platform
+        ctx.fillStyle = '#FFD700'; // Gold color
       } else {
         ctx.fillStyle = '#4a90e2';
       }
@@ -479,11 +688,70 @@ export default function GameCanvas({
       
       // Draw platform outline
       if (platform.label !== 'wall') {
-        ctx.strokeStyle = platform.label === 'finish' ? '#006400' : '#2c5aa0';
-        ctx.lineWidth = 2;
+        const outlineColor = platform.label === 'finish' ? '#006400' : 
+                            platform.label === 'challenge300' ? '#FFA500' : '#2c5aa0';
+        ctx.strokeStyle = outlineColor;
+        ctx.lineWidth = 3;
         ctx.stroke();
       }
     });
+
+    // Draw breakable wall (if it exists)
+    if (breakableWallRef.current) {
+      const wall = breakableWallRef.current;
+      const wallBody = wall.body;
+      const vertices = wallBody.vertices;
+      
+      // Base wall color - gets darker/more damaged with each hit
+      const damageLevel = wall.hits / wall.maxHits;
+      const baseColor = damageLevel === 0 ? '#8B4513' : 
+                       damageLevel < 0.5 ? '#654321' : '#3E2723';
+      
+      ctx.fillStyle = baseColor;
+      ctx.beginPath();
+      ctx.moveTo(vertices[0].x, vertices[0].y);
+      for (let i = 1; i < vertices.length; i++) {
+        ctx.lineTo(vertices[i].x, vertices[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      
+      // Draw wall outline
+      ctx.strokeStyle = '#4E342E';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      
+      // Draw cracks based on hit count
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2;
+      
+      if (wall.hits >= 1) {
+        // First crack - vertical line in center
+        ctx.beginPath();
+        ctx.moveTo(wall.x, wallBody.bounds.min.y + 10);
+        ctx.lineTo(wall.x, wallBody.bounds.max.y - 10);
+        ctx.stroke();
+      }
+      
+      if (wall.hits >= 2) {
+        // Second crack - diagonal lines
+        ctx.beginPath();
+        ctx.moveTo(wallBody.bounds.min.x + 5, wallBody.bounds.min.y + 15);
+        ctx.lineTo(wallBody.bounds.max.x - 5, wallBody.bounds.max.y - 15);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(wallBody.bounds.max.x - 5, wallBody.bounds.min.y + 15);
+        ctx.lineTo(wallBody.bounds.min.x + 5, wallBody.bounds.max.y - 15);
+        ctx.stroke();
+      }
+      
+      // Draw hit counter above the wall
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${wall.hits}/${wall.maxHits}`, wall.x, wallBody.bounds.min.y - 10);
+    }
 
     // Draw bombs
     bombsRef.current.forEach(bomb => {
@@ -532,6 +800,23 @@ export default function GameCanvas({
     ctx.strokeStyle = '#cc0000';
     ctx.lineWidth = 2;
     ctx.stroke();
+
+    // Draw 300m Challenge instructions
+    if (challenge300Ref.current.platformCreated && !challenge300Ref.current.wallBroken) {
+      // Semi-transparent background for the message
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(width / 2 - 200, 50, 400, 80);
+      
+      // Message text
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏆 300m CHALLENGE! 🏆', width / 2, 85);
+      
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '18px Arial';
+      ctx.fillText('Hit the wall 3 times to break it!', width / 2, 115);
+    }
 
     // Continue loop
     animationFrameRef.current = requestAnimationFrame(gameLoop);
