@@ -4,9 +4,55 @@
  * Represents a score entry in the leaderboard
  */
 export interface Score {
-  username: string;      // Player's username
+  avatarId: number;      // Selected avatar (1-9)
+  initials: string;      // 3-letter initials (e.g., "ABC")
   distance: number;      // Distance survived (primary ranking)
   date: string;          // ISO date string when score was achieved
+}
+
+/**
+ * Player identity for localStorage storage
+ */
+export interface PlayerIdentity {
+  avatarId: number;      // Selected avatar (1-9)
+  initials: string;      // 3-letter initials (e.g., "ABC")
+}
+
+/**
+ * User account stored in Firestore
+ */
+export interface User {
+  username: string;      // 3-letter initials (unique identifier)
+  password: string;      // User's password
+  totalMeters: number;   // Cumulative distance traveled across all games
+  totalCoins: number;    // Cumulative coins collected
+  ownedBalls: string[];  // Array of owned ball type IDs
+  selectedBall: string;  // Currently selected ball type ID
+  avatarId: number;      // Selected avatar (1-9)
+  createdAt: string;     // ISO date string when account was created
+}
+
+/**
+ * Ball type configuration for shop and gameplay
+ */
+export interface BallType {
+  id: string;            // Unique identifier for the ball type
+  name: string;          // Display name
+  price: number;         // Cost in coins (0 for default)
+  color: string;         // Primary color (hex)
+  strokeColor: string;   // Outline color (hex)
+  isDefault: boolean;    // Whether this is the free default ball
+  imageUrl?: string;     // Optional image URL for themed balls (Twemoji SVG)
+  imageFilter?: string;  // Optional CSS filter to apply to the image (e.g., for color tinting)
+  description?: string;  // Optional description for the shop
+}
+
+/**
+ * Login credentials for authentication
+ */
+export interface LoginCredentials {
+  username: string;      // 3-letter initials
+  password: string;      // User's password
 }
 
 /**

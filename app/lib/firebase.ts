@@ -1,6 +1,7 @@
 // Firebase configuration and initialization
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFunctions, Functions } from 'firebase/functions';
 
 // Firebase configuration object
 // TODO: Replace with your actual Firebase project configuration
@@ -24,4 +25,7 @@ if (!getApps().length) {
 
 // Initialize Firestore
 export const db: Firestore = getFirestore(app);
+
+// Initialize Firebase Functions
+export const functions: Functions = getFunctions(app);
 

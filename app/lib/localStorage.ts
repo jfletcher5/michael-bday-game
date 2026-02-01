@@ -1,25 +1,61 @@
-import { Score } from './types';
+import { Score, PlayerIdentity } from './types';
 
 // LocalStorage keys
-const USERNAME_KEY = 'marble_game_username';
+const PLAYER_IDENTITY_KEY = 'marble_game_player_identity';
 const SCORES_KEY = 'marble_game_scores';
 
+// Legacy key for backwards compatibility
+const LEGACY_USERNAME_KEY = 'marble_game_username';
+
 /**
- * Get the stored username from localStorage
- * @returns The stored username or empty string if not found
+ * Get the stored player identity from localStorage
+ * @returns The stored PlayerIdentity or null if not found
  */
-export function getUsername(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem(USERNAME_KEY) || '';
+export function getPlayerIdentity(): PlayerIdentity | null {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const stored = localStorage.getItem(PLAYER_IDENTITY_KEY);
+    if (!stored) return null;
+    
+    const identity = JSON.parse(stored) as PlayerIdentity;
+    // Validate the identity has required fields
+    if (typeof identity.avatarId === 'number' && typeof identity.initials === 'string') {
+      return identity;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Save username to localStorage
+ * Save player identity to localStorage
+ * @param identity - The PlayerIdentity to store
+ */
+export function setPlayerIdentity(identity: PlayerIdentity): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(PLAYER_IDENTITY_KEY, JSON.stringify(identity));
+}
+
+/**
+ * Get the stored username from localStorage (legacy support)
+ * @returns The stored username or empty string if not found
+ * @deprecated Use getPlayerIdentity() instead
+ */
+export function getUsername(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem(LEGACY_USERNAME_KEY) || '';
+}
+
+/**
+ * Save username to localStorage (legacy support)
  * @param username - The username to store
+ * @deprecated Use setPlayerIdentity() instead
  */
 export function setUsername(username: string): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(USERNAME_KEY, username);
+  localStorage.setItem(LEGACY_USERNAME_KEY, username);
 }
 
 /**

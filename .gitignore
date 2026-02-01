@@ -40,8 +40,22 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# cursor
 .cursor/*
 
-firebase/*
+# firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
+# OS
+.DS_Store
+Thumbs.db

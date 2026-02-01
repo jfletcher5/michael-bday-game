@@ -12,6 +12,10 @@ interface GameCanvasProps {
   isPlaying: boolean;
   mode: 'infinite' | 'level';
   customPlatforms?: Platform[];
+  ballColor?: string;       // Optional custom ball color
+  ballStrokeColor?: string; // Optional custom ball stroke color
+  ballImageUrl?: string;    // Optional image URL for themed balls
+  ballImageFilter?: string; // Optional CSS filter to apply to ball image
 }
 
 /**
@@ -26,11 +30,15 @@ export default function GameCanvas({
   isPlaying,
   mode,
   customPlatforms = [],
+  ballColor = '#ff6b6b',
+  ballStrokeColor = '#cc0000',
+  ballImageUrl,
+  ballImageFilter,
 }: GameCanvasProps) {
   // Constants - defined first before refs that use them
   const BALL_RADIUS = 20;
   const PLATFORM_HEIGHT = 20;
-  const INITIAL_SCROLL_SPEED = 2; // Fixed starting speed for all machines (slowed down from 4)
+  const INITIAL_SCROLL_SPEED = 1.5; // Fixed starting speed for all machines (slowed down from 4)
   const SPEED_INCREASE_RATE = 0.002; // Gradual acceleration rate
   const MAX_SCROLL_SPEED = 10; // Cap maximum speed
   const PLATFORM_SPAWN_Y = 100; // Distance below screen to spawn platforms
@@ -70,6 +78,10 @@ export default function GameCanvas({
   // Store original scroll speed to restore after challenge
   const originalScrollSpeedRef = useRef<number>(INITIAL_SCROLL_SPEED);
   
+  // Ball image for themed balls
+  const ballImageRef = useRef<HTMLImageElement | null>(null);
+  const ballImageLoadedRef = useRef(false);
+  
   // Store callbacks in refs to prevent re-creation
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
   const onGameOverRef = useRef(onGameOver);
@@ -86,6 +98,28 @@ export default function GameCanvas({
   useEffect(() => {
     controlsRef.current = controls;
   }, [controls]);
+  
+  // Load ball image when ballImageUrl changes
+  useEffect(() => {
+    if (ballImageUrl) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // Allow CORS for CDN images
+      img.onload = () => {
+        ballImageRef.current = img;
+        ballImageLoadedRef.current = true;
+        console.log('Ball image loaded:', ballImageUrl);
+      };
+      img.onerror = () => {
+        console.error('Failed to load ball image:', ballImageUrl);
+        ballImageRef.current = null;
+        ballImageLoadedRef.current = false;
+      };
+      img.src = ballImageUrl;
+    } else {
+      ballImageRef.current = null;
+      ballImageLoadedRef.current = false;
+    }
+  }, [ballImageUrl]);
   
   /**
    * Calculate difficulty settings based on distance
@@ -789,16 +823,52 @@ export default function GameCanvas({
       ctx.fill();
     });
 
-    // Draw ball
-    ctx.fillStyle = '#ff6b6b';
+    // Draw ball - either with image or solid color
+    ctx.save();
+    
+    // Draw base circle with color
+    ctx.fillStyle = ballColor;
     ctx.beginPath();
     ctx.arc(ball.position.x, ball.position.y, BALL_RADIUS, 0, Math.PI * 2);
     ctx.closePath();
     ctx.fill();
     
-    // Ball outline
-    ctx.strokeStyle = '#cc0000';
+    // Draw image inside the ball if available
+    if (ballImageRef.current && ballImageLoadedRef.current) {
+      // Clip to circle
+      ctx.beginPath();
+      ctx.arc(ball.position.x, ball.position.y, BALL_RADIUS - 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      
+      // Apply image filter if provided (for color tinting)
+      const originalFilter = ctx.filter;
+      if (ballImageFilter) {
+        ctx.filter = ballImageFilter;
+      }
+      
+      // Draw the image centered in the ball
+      const imgSize = BALL_RADIUS * 2 - 4;
+      ctx.drawImage(
+        ballImageRef.current,
+        ball.position.x - imgSize / 2,
+        ball.position.y - imgSize / 2,
+        imgSize,
+        imgSize
+      );
+      
+      // Restore original filter
+      ctx.filter = originalFilter;
+    }
+    
+    ctx.restore();
+    
+    // Ball outline with custom stroke color
+    ctx.strokeStyle = ballStrokeColor;
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(ball.position.x, ball.position.y, BALL_RADIUS, 0, Math.PI * 2);
+    ctx.closePath();
     ctx.stroke();
 
     // Draw 300m Challenge instructions

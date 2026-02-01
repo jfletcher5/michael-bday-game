@@ -2,16 +2,38 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow public read and write access to leaderboard (no auth required)
+    // Leaderboard: read-only for clients
+    // Writes are only allowed via Cloud Functions (Admin SDK bypasses rules)
     match /leaderboard/{entry} {
       allow read: if true;
-      allow write: if true;
+      allow write: if false; // Only Cloud Functions can write via Admin SDK
+    }
+    
+    // Game sessions: no direct client access
+    // All session management handled by Cloud Functions
+    match /gameSessions/{session} {
+      allow read, write: if false; // Only Cloud Functions can access
     }
     
     // Allow read access to levels
     match /levels/{level} {
       allow read: if true;
       allow write: if request.auth != null;
+    }
+    
+    // Users collection: allow read/write access
+    // Note: This is a simple username/password system without Firebase Auth
+    // In production, consider using Firebase Authentication for better security
+    match /users/{username} {
+      // Allow anyone to read (needed for login)
+      allow read: if true;
+      // Allow anyone to create (needed for registration)
+      allow create: if true;
+      // Allow anyone to update (needed for stats/purchases)
+      // In a more secure setup, you'd validate the user somehow
+      allow update: if true;
+      // Don't allow deletes
+      allow delete: if false;
     }
   }
 }
