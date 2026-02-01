@@ -1,1 +1,0 @@
-(globalThis.TURBOPACK||(globalThis.TURBOPACK=[])).push(["object"==typeof document?document.currentScript:void 0,18566,(e,t,o)=>{t.exports=e.r(76562)},6816,e=>{"use strict";let t="marble_game_username";function o(){return localStorage.getItem(t)||""}function r(e){localStorage.setItem(t,e)}e.s(["getUsername",()=>o,"setUsername",()=>r])}]);
