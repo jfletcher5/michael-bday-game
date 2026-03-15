@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { GameState, Controls, PlayerIdentity, User } from '../lib/types';
+import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
 import { startGameSession, submitScoreViaFunction, updateUserStats, GameSession } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
+
+// Stable empty platforms array prevents GameCanvas re-init loops in infinite mode.
+const EMPTY_CUSTOM_PLATFORMS: [] = [];
 
 /**
  * Game Page Component
@@ -42,6 +45,7 @@ function Game() {
   // Game metrics
   const [distance, setDistance] = useState(0);
   const [coinsEarned, setCoinsEarned] = useState(0);
+  const [bossHud, setBossHud] = useState<BossHudState | null>(null);
   
   // Player identity (loaded from localStorage)
   const playerIdentityRef = useRef<PlayerIdentity | null>(null);
@@ -123,6 +127,8 @@ function Game() {
 
   // Handle game over
   const handleGameOver = () => {
+    // Hide boss UI immediately when the run ends.
+    setBossHud(null);
     setGameState('gameOver');
   };
 
@@ -137,6 +143,8 @@ function Game() {
 
   // Handle finishing game - save score via Cloud Function ONLY (anti-cheat protection)
   const handleFinish = async () => {
+    // Hide boss UI when transitioning to completion flow.
+    setBossHud(null);
     setGameState('finished');
     
     const identity = getIdentity();
@@ -235,6 +243,8 @@ function Game() {
     setGameState('playing');
     setDistance(0);
     setCoinsEarned(0);
+    // Reset any prior boss meter for the new run.
+    setBossHud(null);
     lastCoinMilestoneRef.current = 0;
     setControls({
       left: false,
@@ -279,9 +289,10 @@ function Game() {
         onDistanceUpdate={handleDistanceUpdate}
         onGameOver={handleGameOver}
         onFinish={handleFinish}
+        onBossHudUpdate={setBossHud}
         isPlaying={gameState === 'playing' && !sessionLoading}
         mode="infinite"
-        customPlatforms={[]}
+        customPlatforms={EMPTY_CUSTOM_PLATFORMS}
         ballColor={ballType.color}
         ballStrokeColor={ballType.strokeColor}
         ballImageUrl={ballType.imageUrl}
@@ -308,6 +319,22 @@ function Game() {
           <div className="text-sm font-semibold">Distance: {distance}m</div>
           <div className="text-sm font-semibold flex items-center gap-1 mt-1">
             <span className="text-yellow-300">🪙</span> {coinsEarned} coins
+          </div>
+        </div>
+      )}
+
+      {/* Boss Health Meter - shown only during active boss encounters */}
+      {gameState === 'playing' && bossHud?.visible && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 w-[min(560px,70vw)] rounded-xl border border-white/30 bg-black/60 px-4 py-3 backdrop-blur-sm">
+          <div className="mb-2 flex items-center justify-between text-white text-sm font-semibold">
+            <span>{bossHud.name}</span>
+            <span>{bossHud.hp}/{bossHud.maxHp} HP</span>
+          </div>
+          <div className="h-3 w-full overflow-hidden rounded bg-gray-800">
+            <div
+              className="h-full bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400 transition-all duration-150"
+              style={{ width: `${Math.max(0, Math.min(100, (bossHud.hp / Math.max(1, bossHud.maxHp)) * 100))}%` }}
+            />
           </div>
         </div>
       )}

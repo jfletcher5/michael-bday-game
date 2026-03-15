@@ -1,4 +1,5 @@
 // Type definitions for the 2D platform scroller game
+import type Matter from 'matter-js';
 
 /**
  * Represents a score entry in the leaderboard
@@ -100,7 +101,7 @@ export interface Bomb {
  * Breakable wall interface for the 300m challenge
  */
 export interface BreakableWall {
-  body: any;            // Matter.js body reference
+  body: Matter.Body;    // Matter.js body reference
   x: number;            // X position (center)
   y: number;            // Y position (center)
   width: number;        // Wall width
@@ -128,4 +129,66 @@ export interface DifficultySettings {
   platformGapMin: number;
   platformGapMax: number;
   scrollSpeed: number;
+}
+
+/**
+ * A single solid arena segment used to build boss platforms with holes.
+ */
+export interface BossArenaSegment {
+  x: number;               // Segment center X
+  y: number;               // Segment center Y
+  width: number;           // Segment width
+  height: number;          // Segment height
+  label?: string;          // Optional label for debugging/rendering
+}
+
+/**
+ * Boss encounter configuration for a specific distance milestone.
+ */
+export interface BossEncounterConfig {
+  id: string;                              // Unique encounter id
+  levelMeters: number;                     // Distance where encounter appears
+  bossId: string;                          // Boss identifier
+  name: string;                            // Boss display name
+  hp: number;                              // Max HP for this encounter
+  contactDamageAmount: number;             // HP removed each time the player touches the boss
+  sizeMultiplier: number;                  // Boss size relative to player ball
+  arenaYSpawnOffset: number;               // Spawn offset below screen while scrolling
+  arenaSegments: Array<{
+    widthRatio: number;                    // Segment width ratio of canvas width
+    centerXRatio: number;                  // Segment center ratio of canvas width
+  }>;
+  jumpForceRange: {
+    min: number;                           // Minimum upward jump impulse
+    max: number;                           // Maximum upward jump impulse
+  };
+  jumpCooldownRangeMs: {
+    min: number;                           // Minimum jump cooldown
+    max: number;                           // Maximum jump cooldown
+  };
+  contactDamageCooldownMs: number;         // Cooldown between boss HP hits from player contact
+  defeatBlinkDurationMs: number;           // Duration of blink animation before despawn
+  defeatBlinkIntervalMs: number;           // Blink toggle interval
+}
+
+/**
+ * Runtime state for the currently active boss.
+ */
+export interface BossState {
+  encounterId: string;       // Encounter id this boss belongs to
+  bossId: string;            // Boss id (e.g. gigaball)
+  name: string;              // Display name
+  hp: number;                // Current HP
+  maxHp: number;             // Maximum HP
+  isDefeating: boolean;      // True while blink/death animation is running
+}
+
+/**
+ * Minimal HUD state surfaced to React for boss health meter rendering.
+ */
+export interface BossHudState {
+  visible: boolean;          // Whether the boss HUD should be shown
+  name: string;              // Boss display name
+  hp: number;                // Current HP
+  maxHp: number;             // Max HP
 }
