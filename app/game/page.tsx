@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { startGameSession, submitScoreViaFunction, updateUserStats, GameSession } from '../lib/firestore';
+import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import ControlsComponent from './components/Controls';
@@ -40,22 +40,27 @@ function Game() {
     right: false,
     jump: false,
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Game metrics
-  const [distance, setDistance] = useState(0);
-  const [coinsEarned, setCoinsEarned] = useState(0);
+  // Game metrics — refs hold the live values; state is throttled for HUD display.
+  const distanceRef = useRef(0);
+  const coinsEarnedRef = useRef(0);
+  const [displayDistance, setDisplayDistance] = useState(0);
+  const [displayCoins, setDisplayCoins] = useState(0);
   const [bossHud, setBossHud] = useState<BossHudState | null>(null);
-  
+  const hudTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Player identity (loaded from localStorage)
   const playerIdentityRef = useRef<PlayerIdentity | null>(null);
-  
+
   // Current user (if logged in)
   const currentUserRef = useRef<User | null>(null);
-  
+
   // Track last distance milestone for coin calculation (every 50m = 20 coins)
   const lastCoinMilestoneRef = useRef(0);
   
+  // Extra ball revival: signal to GameCanvas to reposition ball
+  const reviveSignalRef = useRef(false);
+
   // Game session for anti-cheat (from Cloud Function) - REQUIRED for score submission
   const gameSessionRef = useRef<GameSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -101,6 +106,30 @@ function Game() {
     initSession();
   }, [router]);
   
+  // Throttle HUD state updates to ~4 times per second instead of every frame.
+  useEffect(() => {
+    if (gameState === 'playing') {
+      hudTimerRef.current = setInterval(() => {
+        setDisplayDistance(distanceRef.current);
+        setDisplayCoins(coinsEarnedRef.current);
+      }, 250);
+    } else {
+      // Flush final values when game ends.
+      setDisplayDistance(distanceRef.current);
+      setDisplayCoins(coinsEarnedRef.current);
+      if (hudTimerRef.current) {
+        clearInterval(hudTimerRef.current);
+        hudTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (hudTimerRef.current) {
+        clearInterval(hudTimerRef.current);
+        hudTimerRef.current = null;
+      }
+    };
+  }, [gameState]);
+
   // Get the selected ball type for the current user
   const getSelectedBallType = () => {
     const user = currentUserRef.current;
@@ -110,26 +139,116 @@ function Game() {
     return getDefaultBallType();
   };
 
-  // Handle distance updates from game canvas
-  // Also calculates coins earned (20 coins per 50 meters)
-  const handleDistanceUpdate = (newDistance: number) => {
-    setDistance(newDistance);
-    
+  // Handle distance updates from game canvas — stores in refs (no re-render).
+  // Coins are derived from distance milestones.
+  const handleDistanceUpdate = useCallback((newDistance: number) => {
+    distanceRef.current = newDistance;
+
     // Calculate coins: 20 coins for every 50 meters
     const newMilestone = Math.floor(newDistance / 50);
     if (newMilestone > lastCoinMilestoneRef.current) {
       const milestonesReached = newMilestone - lastCoinMilestoneRef.current;
       const newCoins = milestonesReached * 20;
-      setCoinsEarned(prev => prev + newCoins);
+      coinsEarnedRef.current += newCoins;
       lastCoinMilestoneRef.current = newMilestone;
+    }
+  }, []);
+
+  // Handle game over — check for extra balls, then auto-save stats and score
+  const handleGameOver = async () => {
+    // Hide boss UI immediately when the run ends.
+    setBossHud(null);
+    // Flush latest values for display
+    setDisplayDistance(distanceRef.current);
+    setDisplayCoins(coinsEarnedRef.current);
+
+    const extraBalls = currentUserRef.current?.extraBalls ?? 0;
+    if (extraBalls > 0) {
+      setGameState('revivePrompt');
+      return;
+    }
+
+    setGameState('gameOver');
+
+    // Auto-save stats and score in the background
+    const user = currentUserRef.current;
+    const session = gameSessionRef.current;
+    const identity = getIdentity();
+
+    if (user) {
+      try {
+        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
+        if (updatedUser) {
+          setCurrentUser(updatedUser);
+          currentUserRef.current = updatedUser;
+        }
+      } catch (error) {
+        console.error('Failed to auto-save user stats:', error);
+      }
+    }
+
+    if (session) {
+      try {
+        await submitScoreViaFunction(session, {
+          avatarId: identity.avatarId,
+          initials: identity.initials,
+          distance: distanceRef.current,
+          date: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('Failed to auto-save score:', error);
+      }
     }
   };
 
-  // Handle game over
-  const handleGameOver = () => {
-    // Hide boss UI immediately when the run ends.
-    setBossHud(null);
+  // Handle revival with an extra ball
+  const handleRevive = async () => {
+    const user = currentUserRef.current;
+    if (!user) return;
+    try {
+      const updated = await useExtraBall(user.username);
+      currentUserRef.current = updated;
+      setCurrentUser(updated);
+      reviveSignalRef.current = true;
+      setGameState('playing');
+    } catch (err) {
+      console.error('Failed to use extra ball:', err);
+      setGameState('gameOver');
+    }
+  };
+
+  // Decline revival — auto-save and proceed to game over
+  const handleDeclineRevive = async () => {
     setGameState('gameOver');
+
+    const user = currentUserRef.current;
+    const session = gameSessionRef.current;
+    const identity = getIdentity();
+
+    if (user) {
+      try {
+        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
+        if (updatedUser) {
+          setCurrentUser(updatedUser);
+          currentUserRef.current = updatedUser;
+        }
+      } catch (error) {
+        console.error('Failed to auto-save user stats:', error);
+      }
+    }
+
+    if (session) {
+      try {
+        await submitScoreViaFunction(session, {
+          avatarId: identity.avatarId,
+          initials: identity.initials,
+          distance: distanceRef.current,
+          date: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('Failed to auto-save score:', error);
+      }
+    }
   };
 
   // Get player identity - user must be logged in
@@ -154,82 +273,32 @@ function Game() {
     // Update user stats if logged in
     if (user) {
       try {
-        const updatedUser = await updateUserStats(user.username, distance, coinsEarned);
+        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
         if (updatedUser) {
           setCurrentUser(updatedUser);
           currentUserRef.current = updatedUser;
-          console.log(`Stats updated: +${distance}m, +${coinsEarned} coins`);
+          console.log(`Stats updated: +${distanceRef.current}m, +${coinsEarnedRef.current} coins`);
         }
       } catch (error) {
         console.error('Failed to update user stats:', error);
       }
     }
-    
+
     if (!session) {
       console.error('Cannot save score: Game session not initialized. Cloud Functions required.');
       return;
     }
-    
+
     try {
       await submitScoreViaFunction(session, {
         avatarId: identity.avatarId,
         initials: identity.initials,
-        distance,
+        distance: distanceRef.current,
         date: new Date().toISOString(),
       });
       console.log('Game completion score saved via Cloud Function');
     } catch (error) {
       console.error('Failed to save score:', error);
-    }
-  };
-
-  // Save score via Cloud Function ONLY (anti-cheat protection required)
-  const handleSaveScore = async () => {
-    const identity = getIdentity();
-    const session = gameSessionRef.current;
-    const user = currentUserRef.current;
-    
-    setIsSubmitting(true);
-    
-    // Update user stats if logged in
-    if (user) {
-      try {
-        const updatedUser = await updateUserStats(user.username, distance, coinsEarned);
-        if (updatedUser) {
-          setCurrentUser(updatedUser);
-          currentUserRef.current = updatedUser;
-          console.log(`Stats updated: +${distance}m, +${coinsEarned} coins`);
-        }
-      } catch (error) {
-        console.error('Failed to update user stats:', error);
-      }
-    }
-    
-    // Require valid game session - no fallback to prevent cheating
-    if (!session) {
-      console.error('Cannot save score: Game session not initialized. Cloud Functions required.');
-      alert('Unable to save score: Secure game session not available. Please ensure Cloud Functions are deployed.');
-      router.push('/leaderboard');
-      return;
-    }
-    
-    try {
-      // Submit score via Cloud Function with anti-cheat validation
-      await submitScoreViaFunction(session, {
-        avatarId: identity.avatarId,
-        initials: identity.initials,
-        distance,
-        date: new Date().toISOString(),
-      });
-      console.log('Score saved via Cloud Function with anti-cheat validation');
-      router.push('/leaderboard');
-    } catch (error) {
-      console.error('Failed to save score:', error);
-      alert('Failed to save score. Please try again.');
-      // Still navigate to leaderboard even if save fails
-      router.push('/leaderboard');
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -241,8 +310,11 @@ function Game() {
   // Restart game - also reinitialize session for new game
   const handleRestart = async () => {
     setGameState('playing');
-    setDistance(0);
-    setCoinsEarned(0);
+    distanceRef.current = 0;
+    coinsEarnedRef.current = 0;
+    setDisplayDistance(0);
+    setDisplayCoins(0);
+    reviveSignalRef.current = false;
     // Reset any prior boss meter for the new run.
     setBossHud(null);
     lastCoinMilestoneRef.current = 0;
@@ -272,12 +344,12 @@ function Game() {
   const ballType = getSelectedBallType();
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black">
+    <div className="relative w-screen h-dvh overflow-hidden bg-black">
       {/* Loading overlay - show while session is initializing */}
       {sessionLoading && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/90 backdrop-blur-sm">
           <div className="text-center">
-            <div className="text-white text-xl font-semibold mb-4">Initializing secure game session...</div>
+            <div className="text-white text-base sm:text-xl font-semibold mb-4 px-4">Initializing secure game session...</div>
             <div className="text-gray-400 text-sm">Please wait</div>
           </div>
         </div>
@@ -291,6 +363,7 @@ function Game() {
         onFinish={handleFinish}
         onBossHudUpdate={setBossHud}
         isPlaying={gameState === 'playing' && !sessionLoading}
+        reviveSignalRef={reviveSignalRef}
         mode="infinite"
         customPlatforms={EMPTY_CUSTOM_PLATFORMS}
         ballColor={ballType.color}
@@ -315,10 +388,10 @@ function Game() {
 
       {/* HUD - Display current stats */}
       {gameState === 'playing' && (
-        <div className="absolute top-4 left-4 z-10 bg-black/50 text-white px-6 py-3 rounded-lg backdrop-blur-sm">
-          <div className="text-sm font-semibold">Distance: {distance}m</div>
-          <div className="text-sm font-semibold flex items-center gap-1 mt-1">
-            <span className="text-yellow-300">🪙</span> {coinsEarned} coins
+        <div className="absolute top-2 left-2 sm:top-4 sm:left-4 z-10 bg-black/50 text-white px-3 py-2 sm:px-6 sm:py-3 rounded-lg backdrop-blur-sm">
+          <div className="text-xs sm:text-sm font-semibold">Distance: {displayDistance}m</div>
+          <div className="text-xs sm:text-sm font-semibold flex items-center gap-1 mt-0.5 sm:mt-1">
+            <span className="text-yellow-300">🪙</span> {displayCoins} coins
           </div>
         </div>
       )}
@@ -339,6 +412,47 @@ function Game() {
         </div>
       )}
 
+      {/* Extra Ball Revival Prompt */}
+      {gameState === 'revivePrompt' && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
+            <h2 className="text-3xl font-bold text-purple-600 mb-2">🔮 Use Extra Ball?</h2>
+            <p className="text-gray-600 mb-2">You have <span className="font-bold text-purple-600">{currentUserRef.current?.extraBalls ?? 0}</span> extra ball{(currentUserRef.current?.extraBalls ?? 0) !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-gray-500 mb-6">Revive and continue from where you left off!</p>
+
+            <div className="bg-gray-100 rounded-lg p-4 mb-6">
+              <div className="flex justify-center gap-6">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-gray-800">{displayDistance}m</div>
+                  <div className="text-sm text-gray-600">Distance</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-600 flex items-center justify-center gap-1">
+                    <span>🪙</span> {displayCoins}
+                  </div>
+                  <div className="text-sm text-gray-600">Coins Earned</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={handleRevive}
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+              >
+                🔮 Revive! (1 Extra Ball)
+              </button>
+              <button
+                onClick={handleDeclineRevive}
+                className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
+              >
+                No, End Game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Game Over Modal */}
       {gameState === 'gameOver' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -350,7 +464,7 @@ function Game() {
               <div className="flex justify-center gap-6">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-gray-800">
-                    {distance}m
+                    {displayDistance}m
                   </div>
                   <div className="text-sm text-gray-600">
                     Distance
@@ -358,7 +472,7 @@ function Game() {
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-yellow-600 flex items-center justify-center gap-1">
-                    <span>🪙</span> {coinsEarned}
+                    <span>🪙</span> {displayCoins}
                   </div>
                   <div className="text-sm text-gray-600">
                     Coins Earned
@@ -367,28 +481,18 @@ function Game() {
               </div>
             </div>
 
+            <p className="text-sm text-green-600 mb-4">Score saved automatically</p>
+
             <div className="space-y-3">
-              {/* Show error if session failed to initialize */}
-              {sessionError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
-                  <p className="text-sm text-red-600">{sessionError}</p>
-                </div>
-              )}
               <button
-                onClick={handleSaveScore}
-                disabled={isSubmitting || !gameSessionRef.current || sessionLoading}
-                className={`w-full font-semibold py-3 px-6 rounded-lg transition-all transform shadow-lg ${
-                  isSubmitting || !gameSessionRef.current || sessionLoading
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-105'
-                }`}
+                onClick={() => router.push('/leaderboard')}
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
               >
-                {isSubmitting ? 'Saving...' : sessionLoading ? 'Initializing Session...' : !gameSessionRef.current ? 'Score Saving Unavailable' : 'Save Score & View Leaderboard'}
+                View Leaderboard
               </button>
               <button
                 onClick={handleReturnToMenu}
-                disabled={isSubmitting}
-                className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300 disabled:opacity-50"
+                className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
               >
                 Main Menu
               </button>
@@ -409,7 +513,7 @@ function Game() {
               <div className="flex justify-center gap-6">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-gray-800">
-                    {distance}m
+                    {displayDistance}m
                   </div>
                   <div className="text-sm text-gray-600">
                     Distance
@@ -417,7 +521,7 @@ function Game() {
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-yellow-600 flex items-center justify-center gap-1">
-                    <span>🪙</span> {coinsEarned}
+                    <span>🪙</span> {displayCoins}
                   </div>
                   <div className="text-sm text-gray-600">
                     Coins Earned
@@ -445,10 +549,10 @@ function Game() {
       )}
 
       {/* Instructions overlay (shown briefly at start) */}
-      {gameState === 'playing' && distance < 5 && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 bg-black/70 text-white px-8 py-4 rounded-lg backdrop-blur-sm text-center pointer-events-none">
-          <p className="text-xl font-semibold">Use arrow keys to move and jump!</p>
-          <p className="text-sm mt-2">Land on platforms and survive as long as you can</p>
+      {gameState === 'playing' && displayDistance < 5 && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 bg-black/70 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-lg backdrop-blur-sm text-center pointer-events-none max-w-[90vw]">
+          <p className="text-sm sm:text-xl font-semibold">Use arrow keys to move and jump!</p>
+          <p className="text-xs sm:text-sm mt-1 sm:mt-2">Land on platforms and survive as long as you can</p>
         </div>
       )}
     </div>

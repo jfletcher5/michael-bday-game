@@ -20,6 +20,7 @@ interface GameCanvasProps {
   onFinish?: () => void;
   onBossHudUpdate?: (bossHud: BossHudState | null) => void;
   isPlaying: boolean;
+  reviveSignalRef?: React.MutableRefObject<boolean>;
   mode: 'infinite' | 'level';
   customPlatforms?: Platform[];
   ballColor?: string;       // Optional custom ball color
@@ -52,6 +53,15 @@ interface Challenge300State {
   wallBroken: boolean;
 }
 
+// Core gameplay constants used by physics and rendering.
+const BALL_RADIUS = 20;
+const PLATFORM_HEIGHT = 20;
+const INITIAL_SCROLL_SPEED = 1.5;
+const PLATFORM_SPAWN_Y = 100;
+const JUMP_FORCE = 0.18;
+const BOMB_RADIUS = 15;
+const BOMB_SPAWN_CHANCE = 0.3;
+
 /**
  * GameCanvas Component
  * Manages the 2D physics simulation and rendering using Matter.js.
@@ -63,6 +73,7 @@ export default function GameCanvas({
   onFinish,
   onBossHudUpdate,
   isPlaying,
+  reviveSignalRef,
   mode,
   customPlatforms = [],
   ballColor = '#ff6b6b',
@@ -70,17 +81,9 @@ export default function GameCanvas({
   ballImageUrl,
   ballImageFilter,
 }: GameCanvasProps) {
-  // Core gameplay constants used by physics and rendering.
-  const BALL_RADIUS = 20;
-  const PLATFORM_HEIGHT = 20;
-  const INITIAL_SCROLL_SPEED = 1.5;
-  const PLATFORM_SPAWN_Y = 100;
-  const JUMP_FORCE = 0.18;
-  const BOMB_RADIUS = 15;
-  const BOMB_SPAWN_CHANCE = 0.3;
-
   // Refs for mutable runtime state that should not trigger React re-renders.
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const ballRef = useRef<Matter.Body | null>(null);
   const platformsRef = useRef<Matter.Body[]>([]);
@@ -92,6 +95,7 @@ export default function GameCanvas({
   const isGroundedRef = useRef(false);
   const hasJumpedRef = useRef(false);
   const lastFrameTimeRef = useRef(0);
+  const accumulatorRef = useRef(0);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const gameLoopRef = useRef<(currentTime: number) => void>(() => {});
 
@@ -181,7 +185,7 @@ export default function GameCanvas({
       y: platform.bounds.min.y - BOMB_RADIUS - 5,
       radius: BOMB_RADIUS,
     };
-  }, [BOMB_RADIUS, BOMB_SPAWN_CHANCE]);
+  }, []);
 
   const isBodyGroundedOnPlatforms = useCallback((body: Matter.Body, radius: number, contactTolerance = 8) => {
     // Grounding check uses per-platform overlap to support arena holes naturally.
@@ -250,7 +254,7 @@ export default function GameCanvas({
       lastBlinkToggleAt: 0,
       isBossVisible: true,
     };
-  }, [BALL_RADIUS, PLATFORM_HEIGHT]);
+  }, []);
 
   const clearPlatformsAboveBossArena = useCallback((encounter: ActiveBossEncounter) => {
     if (!engineRef.current) return;
@@ -389,7 +393,7 @@ export default function GameCanvas({
       isOnPlatform: false,
       wallBroken: false,
     };
-  }, [PLATFORM_HEIGHT]);
+  }, []);
 
   const initializeGame = useCallback(() => {
     if (!canvasRef.current) return;
@@ -398,9 +402,14 @@ export default function GameCanvas({
     const width = canvas.width;
     const height = canvas.height;
 
-    // Recreate physics engine fresh on reset/restart.
+    // Clean up previous engine to prevent memory leaks across restarts.
+    if (engineRef.current) {
+      Matter.World.clear(engineRef.current.world, false);
+      Matter.Engine.clear(engineRef.current);
+    }
+
     const engine = Matter.Engine.create({
-      gravity: { x: 0, y: 1 },
+      gravity: { x: 0, y: 2 },
     });
     engineRef.current = engine;
 
@@ -511,7 +520,9 @@ export default function GameCanvas({
     };
     breakableWallRef.current = null;
     emitBossHud(null);
-  }, [BALL_RADIUS, PLATFORM_HEIGHT, mode, customPlatforms, getDifficultySettings, createBombOnPlatform, emitBossHud]);
+    // Cache the 2D rendering context so we don't look it up every frame.
+    ctxRef.current = canvas.getContext('2d');
+  }, [mode, customPlatforms, getDifficultySettings, createBombOnPlatform, emitBossHud]);
 
   // Centralized frame scheduling keeps requestAnimationFrame flow consistent.
   const scheduleNextFrame = useCallback(() => {
@@ -529,7 +540,7 @@ export default function GameCanvas({
       }
 
       const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
+      const ctx = ctxRef.current;
       if (!ctx) {
         scheduleNextFrame();
         return;
@@ -538,10 +549,47 @@ export default function GameCanvas({
     const width = canvas.width;
     const height = canvas.height;
 
-    // Fixed timestep keeps physics stable at variable framerates.
+    // Handle revival: reposition ball to a safe platform
+    if (reviveSignalRef?.current && ballRef.current) {
+      const ball = ballRef.current;
+      // Find the nearest visible platform to place the ball on
+      const visiblePlatforms = platformsRef.current.filter(
+        (p) => p.position.y > 0 && p.position.y < height && !p.label.startsWith('wall')
+      );
+      if (visiblePlatforms.length > 0) {
+        // Pick the platform closest to screen center
+        const centerY = height / 2;
+        const best = visiblePlatforms.reduce((a, b) =>
+          Math.abs(a.position.y - centerY) < Math.abs(b.position.y - centerY) ? a : b
+        );
+        Matter.Body.setPosition(ball, {
+          x: best.position.x,
+          y: best.bounds.min.y - BALL_RADIUS - 2,
+        });
+      } else {
+        // Fallback: center of screen
+        Matter.Body.setPosition(ball, { x: width / 2, y: height / 2 });
+      }
+      Matter.Body.setVelocity(ball, { x: 0, y: 0 });
+      reviveSignalRef.current = false;
+    }
+
+    // Fixed-step accumulator: physics runs at a consistent 60Hz regardless of monitor refresh rate.
+    const FIXED_DT = 16.67;
     if (lastFrameTimeRef.current === 0) lastFrameTimeRef.current = currentTime;
+    let elapsed = currentTime - lastFrameTimeRef.current;
     lastFrameTimeRef.current = currentTime;
-    Matter.Engine.update(engineRef.current, 16.67);
+    // Clamp to avoid spiral-of-death when tab is backgrounded
+    if (elapsed > 100) elapsed = FIXED_DT;
+    accumulatorRef.current += elapsed;
+    while (accumulatorRef.current >= FIXED_DT) {
+      Matter.Engine.update(engineRef.current, FIXED_DT);
+      accumulatorRef.current -= FIXED_DT;
+    }
+
+    // Scale factor for per-frame movement (scrolling, bombs) so speed is
+    // consistent regardless of monitor refresh rate. 1.0 = 60 Hz baseline.
+    const dtScale = elapsed / FIXED_DT;
 
     const ball = ballRef.current;
     const currentControls = controlsRef.current;
@@ -583,6 +631,12 @@ export default function GameCanvas({
           originalScrollSpeedRef.current = scrollSpeedRef.current;
           scrollSpeedRef.current = 0;
           challenge300Ref.current.isOnPlatform = true;
+        }
+
+        // If player fell off the challenge platform, resume scrolling so they don't softlock.
+        if (challenge300Ref.current.isOnPlatform && !isOnChallengePlatform && ball.position.y < challengePlatform.bounds.min.y - 50) {
+          scrollSpeedRef.current = originalScrollSpeedRef.current || INITIAL_SCROLL_SPEED;
+          challenge300Ref.current.isOnPlatform = false;
         }
       }
 
@@ -748,10 +802,12 @@ export default function GameCanvas({
     }
 
     // Scroll platforms and bombs while the world is moving.
+    // Multiply by dtScale so scroll speed is consistent across refresh rates.
+    const frameScroll = scrollSpeedRef.current * dtScale;
     platformsRef.current.forEach(platform => {
       Matter.Body.setPosition(platform, {
         x: platform.position.x,
-        y: platform.position.y - scrollSpeedRef.current,
+        y: platform.position.y - frameScroll,
       });
 
       if (mode === 'level' && platform.label === 'finish') {
@@ -765,7 +821,7 @@ export default function GameCanvas({
       }
     });
     bombsRef.current.forEach(bomb => {
-      bomb.y -= scrollSpeedRef.current;
+      bomb.y -= frameScroll;
     });
 
     // The 300m wall should scroll with the world until the player reaches the platform.
@@ -775,13 +831,13 @@ export default function GameCanvas({
       if (shouldScrollWall && scrollSpeedRef.current > 0) {
         Matter.Body.setPosition(wall.body, {
           x: wall.body.position.x,
-          y: wall.body.position.y - scrollSpeedRef.current,
+          y: wall.body.position.y - frameScroll,
         });
-        wall.y -= scrollSpeedRef.current;
+        wall.y -= frameScroll;
       }
     }
 
-    scrollDistanceRef.current += scrollSpeedRef.current;
+    scrollDistanceRef.current += frameScroll;
     onDistanceUpdateRef.current(Math.floor(scrollDistanceRef.current / 10));
 
     // Only add/remove random platforms outside active boss fights.
@@ -992,12 +1048,6 @@ export default function GameCanvas({
       scheduleNextFrame();
     }
   }, [
-    BALL_RADIUS,
-    BOMB_RADIUS,
-    INITIAL_SCROLL_SPEED,
-    JUMP_FORCE,
-    PLATFORM_HEIGHT,
-    PLATFORM_SPAWN_Y,
     ballColor,
     ballImageFilter,
     ballStrokeColor,
@@ -1016,11 +1066,12 @@ export default function GameCanvas({
   ]);
 
   const handleResize = useCallback(() => {
-    // Resize canvas to viewport dimensions before world initialization.
+    // Resize canvas to viewport dimensions. Use visualViewport on mobile
+    // to account for browser chrome (URL bar, toolbar).
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    canvas.height = window.visualViewport?.height ?? window.innerHeight;
   }, []);
 
   // Keep a mutable reference so animation frames can call the latest loop logic.
@@ -1043,6 +1094,7 @@ export default function GameCanvas({
   useEffect(() => {
     if (isPlaying) {
       lastFrameTimeRef.current = 0;
+      accumulatorRef.current = 0;
       scheduleNextFrame();
     } else if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);

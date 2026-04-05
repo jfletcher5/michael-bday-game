@@ -81,10 +81,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
-      <main className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-4">
+      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4">
         {/* Page Title */}
-        <div className="text-center mb-6">
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2">
+        <div className="text-center mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
             {isRegister ? 'Create Account' : 'Login'}
           </h1>
           <p className="text-gray-600">
@@ -106,7 +106,7 @@ export default function LoginPage() {
                     key={avatar.id}
                     type="button"
                     onClick={() => setSelectedAvatarId(avatar.id)}
-                    className={`relative p-2 md:p-3 rounded-xl transition-all transform hover:scale-105 ${
+                    className={`relative p-2 sm:p-3 rounded-xl transition-all transform hover:scale-105 min-h-[60px] ${
                       selectedAvatarId === avatar.id
                         ? 'bg-purple-100 ring-2 ring-purple-500 shadow-md'
                         : 'bg-gray-100 hover:bg-gray-200'
@@ -159,7 +159,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={handleUsernameChange}
                   placeholder="ABC"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition text-center text-xl md:text-2xl font-bold tracking-widest uppercase"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition text-center text-lg sm:text-xl md:text-2xl font-bold tracking-widest uppercase"
                   maxLength={3}
                   required
                 />
@@ -225,7 +225,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={!isFormValid() || isLoading}
-                className={`w-full font-semibold py-3 px-6 rounded-lg transition-all transform shadow-lg ${
+                className={`w-full font-semibold min-h-[48px] py-3 px-6 rounded-lg transition-all transform shadow-lg text-sm sm:text-base ${
                   isFormValid() && !isLoading
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-105'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
@@ -242,7 +242,7 @@ export default function LoginPage() {
               </p>
               <button
                 onClick={toggleMode}
-                className="text-purple-600 hover:text-purple-700 font-medium text-sm mt-1"
+                className="text-purple-600 hover:text-purple-700 font-medium text-sm mt-1 min-h-[44px]"
               >
                 {isRegister ? 'Login here' : 'Create one'}
               </button>

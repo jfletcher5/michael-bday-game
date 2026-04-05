@@ -31,6 +31,8 @@ export interface User {
   selectedBall: string;  // Currently selected ball type ID
   avatarId: number;      // Selected avatar (1-9)
   createdAt: string;     // ISO date string when account was created
+  extraBalls: number;    // Count of extra-ball revival items
+  seasonData: SeasonData | null; // Current season progress (null if never interacted)
 }
 
 /**
@@ -57,9 +59,20 @@ export interface LoginCredentials {
 }
 
 /**
+ * Season progress stored on the user document
+ */
+export interface SeasonData {
+  seasonId: string;          // e.g. "april-2026"
+  meters: number;            // meters accumulated this season
+  premiumUnlocked: boolean;  // whether player paid for premium track
+  claimedFree: number[];     // level indices (0-4) already claimed on free track
+  claimedPremium: number[];  // level indices (0-4) already claimed on premium track
+}
+
+/**
  * Game state enum for tracking current game status
  */
-export type GameState = 'playing' | 'gameOver' | 'finished';
+export type GameState = 'playing' | 'revivePrompt' | 'gameOver' | 'finished';
 
 /**
  * Game mode - infinite or custom level

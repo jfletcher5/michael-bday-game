@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { purchaseBall, selectBall } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
+import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
 
 /**
@@ -163,25 +164,25 @@ export default function ShopPage() {
           <button
             onClick={() => handleSelect(ball)}
             disabled={selected || isProcessing}
-            className={`w-full py-2 px-4 rounded-lg font-medium transition-all mt-auto ${
+            className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all mt-auto ${
               selected
                 ? 'bg-purple-100 text-purple-600 cursor-default'
                 : 'bg-purple-500 text-white hover:bg-purple-600'
             } disabled:opacity-50`}
           >
-            {isProcessing ? 'Selecting...' : selected ? 'Currently Selected' : 'Select'}
+            {isProcessing ? 'Selecting...' : selected ? 'Selected' : 'Select'}
           </button>
         ) : (
           <button
             onClick={() => handlePurchase(ball)}
             disabled={!canAfford || isProcessing}
-            className={`w-full py-2 px-4 rounded-lg font-medium transition-all mt-auto ${
+            className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all mt-auto ${
               canAfford
                 ? 'bg-yellow-500 text-white hover:bg-yellow-600'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             } disabled:opacity-50`}
           >
-            {isProcessing ? 'Purchasing...' : canAfford ? 'Purchase' : 'Not enough coins'}
+            {isProcessing ? 'Purchasing...' : canAfford ? 'Purchase' : 'Not enough'}
           </button>
         )}
       </div>
@@ -205,27 +206,27 @@ export default function ShopPage() {
       {/* Header */}
       <div className="max-w-4xl mx-auto">
         {/* Top Bar */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-4 sm:mb-6">
           <button
             onClick={() => router.push('/')}
-            className="bg-white/20 backdrop-blur-sm text-white font-medium py-2 px-4 rounded-lg hover:bg-white/30 transition-all"
+            className="bg-white/20 backdrop-blur-sm text-white font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:bg-white/30 transition-all text-sm"
           >
-            ← Back
+            &larr; Back
           </button>
-          
+
           {/* Coin Balance */}
-          <div className="bg-white/20 backdrop-blur-sm text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2">
-            <span className="text-yellow-300 text-xl">🪙</span>
+          <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
+            <span className="text-yellow-300 text-lg sm:text-xl">🪙</span>
             <span>{formatPrice(user.totalCoins)} coins</span>
           </div>
         </div>
 
         {/* Page Title */}
-        <div className="text-center mb-6">
-          <h1 className="text-4xl font-bold text-white mb-2 drop-shadow-lg">
+        <div className="text-center mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-4xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">
             Ball Shop
           </h1>
-          <p className="text-white/80">
+          <p className="text-white/80 text-sm sm:text-base">
             Purchase and select your ball style
           </p>
         </div>
@@ -250,8 +251,17 @@ export default function ShopPage() {
         )}
 
         {/* Ball Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
           {BALL_TYPES.map(ball => renderBallCard(ball))}
+          {/* Season-exclusive balls (only shown if owned) */}
+          {user && getOwnedSeasonBalls(user.ownedBalls).map(ball => (
+            <div key={ball.id} className="relative">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full z-10 whitespace-nowrap">
+                SEASON EXCLUSIVE
+              </div>
+              {renderBallCard(ball)}
+            </div>
+          ))}
         </div>
       </div>
     </div>

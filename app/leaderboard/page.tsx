@@ -110,13 +110,13 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
-      <main className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-2xl">
+      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-2xl mx-2 sm:mx-4">
         {/* Page Title */}
-        <div className="text-center mb-6">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
+        <div className="text-center mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
             Leaderboard
           </h1>
-          <p className="text-gray-600">
+          <p className="text-sm sm:text-base text-gray-600">
             Top Players
           </p>
         </div>
@@ -127,7 +127,7 @@ export default function Leaderboard() {
             <button
               onClick={handleGoToTop}
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-2 px-4 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-md text-sm"
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[44px] py-2 px-4 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-md text-sm"
             >
               Go to Top of Leaderboard
             </button>
@@ -160,13 +160,13 @@ export default function Leaderboard() {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr className="border-b border-gray-200">
-                    <th className="py-3 px-3 text-left text-sm font-semibold text-gray-700 w-16">
+                    <th className="py-2 sm:py-3 px-2 sm:px-3 text-left text-xs sm:text-sm font-semibold text-gray-700 w-10 sm:w-16">
                       Rank
                     </th>
-                    <th className="py-3 px-3 text-left text-sm font-semibold text-gray-700">
+                    <th className="py-2 sm:py-3 px-2 sm:px-3 text-left text-xs sm:text-sm font-semibold text-gray-700">
                       Player
                     </th>
-                    <th className="py-3 px-4 text-right text-sm font-semibold text-gray-700 w-28">
+                    <th className="py-2 sm:py-3 px-2 sm:px-4 text-right text-xs sm:text-sm font-semibold text-gray-700 w-20 sm:w-28">
                       Distance
                     </th>
                   </tr>
@@ -181,34 +181,27 @@ export default function Leaderboard() {
                           rank === 1 ? 'bg-yellow-50' : ''
                         }`}
                       >
-                        {/* Rank Column */}
-                        <td className="py-4 px-3">
+                        <td className="py-3 sm:py-4 px-2 sm:px-3">
                           <span className={`font-bold ${getRankStyle(rank)}`}>
                             {getRankDisplay(rank)}
                           </span>
                         </td>
-                        
-                        {/* Player Column - Avatar + Initials */}
-                        <td className="py-4 px-3">
-                          <div className="flex items-center gap-3">
-                            {/* Avatar */}
+                        <td className="py-3 sm:py-4 px-2 sm:px-3">
+                          <div className="flex items-center gap-2 sm:gap-3">
                             <Image
                               src={getAvatarUrl(score.avatarId)}
                               alt="Player avatar"
-                              width={40}
-                              height={40}
-                              className="rounded-full bg-gray-100"
+                              width={32}
+                              height={32}
+                              className="rounded-full bg-gray-100 w-8 h-8 sm:w-10 sm:h-10"
                               unoptimized
                             />
-                            {/* Initials */}
-                            <span className="font-bold text-gray-800 text-lg tracking-wide">
+                            <span className="font-bold text-gray-800 text-sm sm:text-lg tracking-wide">
                               {score.initials}
                             </span>
                           </div>
                         </td>
-                        
-                        {/* Distance Column */}
-                        <td className="py-4 px-4 text-right font-semibold text-purple-600 text-lg">
+                        <td className="py-3 sm:py-4 px-2 sm:px-4 text-right font-semibold text-purple-600 text-sm sm:text-lg">
                           {score.distance}m
                         </td>
                       </tr>
@@ -219,38 +212,36 @@ export default function Leaderboard() {
             </div>
 
             {/* Pagination Controls */}
-            <div className="flex items-center justify-between mt-6">
-              {/* Previous Button */}
+            <div className="flex items-center justify-between mt-4 sm:mt-6">
               <button
                 onClick={handlePreviousPage}
                 disabled={currentPage === 1 || isLoading}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${
+                className={`flex items-center gap-1 sm:gap-2 min-h-[44px] px-3 sm:px-4 py-2 rounded-lg font-medium text-sm transition ${
                   currentPage === 1 || isLoading
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
               >
-                <span>←</span>
-                <span>Previous</span>
+                <span>&larr;</span>
+                <span className="hidden sm:inline">Previous</span>
+                <span className="sm:hidden">Prev</span>
               </button>
 
-              {/* Page Indicator */}
-              <span className="text-gray-600 font-medium">
+              <span className="text-gray-600 font-medium text-sm">
                 Page {currentPage}
               </span>
 
-              {/* Next Button */}
               <button
                 onClick={handleNextPage}
                 disabled={!hasMore || isLoading}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${
+                className={`flex items-center gap-1 sm:gap-2 min-h-[44px] px-3 sm:px-4 py-2 rounded-lg font-medium text-sm transition ${
                   !hasMore || isLoading
                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                 }`}
               >
                 <span>Next</span>
-                <span>→</span>
+                <span>&rarr;</span>
               </button>
             </div>
           </div>

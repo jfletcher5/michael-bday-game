@@ -18,7 +18,8 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, LoginCredentials } from './types';
+import { Score, User, SeasonData, LoginCredentials } from './types';
+import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -260,6 +261,8 @@ export async function createUser(
       selectedBall: 'default',
       avatarId,
       createdAt: new Date().toISOString(),
+      extraBalls: 0,
+      seasonData: null,
     };
     
     // Save to Firestore using username as document ID
@@ -347,20 +350,42 @@ export async function updateUserStats(
     }
     
     const currentData = userDoc.data() as User;
-    
+
+    // Build updated season data
+    const currentSeasonId = getCurrentSeasonId();
+    let seasonData: SeasonData;
+    if (currentData.seasonData && currentData.seasonData.seasonId === currentSeasonId) {
+      seasonData = {
+        ...currentData.seasonData,
+        meters: currentData.seasonData.meters + metersEarned,
+      };
+    } else {
+      // New season or first interaction — initialize fresh
+      seasonData = {
+        seasonId: currentSeasonId,
+        meters: metersEarned,
+        premiumUnlocked: false,
+        claimedFree: [],
+        claimedPremium: [],
+      };
+    }
+
     // Update stats
     await updateDoc(userRef, {
       totalMeters: currentData.totalMeters + metersEarned,
       totalCoins: currentData.totalCoins + coinsEarned,
+      seasonData,
     });
-    
+
     // Return updated user data
     const updatedUser: User = {
       ...currentData,
       totalMeters: currentData.totalMeters + metersEarned,
       totalCoins: currentData.totalCoins + coinsEarned,
+      extraBalls: currentData.extraBalls ?? 0,
+      seasonData,
     };
-    
+
     console.log(`Stats updated for ${username}: +${metersEarned}m, +${coinsEarned} coins`);
     return updatedUser;
   } catch (error) {
@@ -466,5 +491,147 @@ export async function selectBall(
     console.error('Error selecting ball:', error);
     throw error;
   }
+}
+
+// ============================================
+// SEASON FUNCTIONS
+// ============================================
+
+/**
+ * Claim a season reward (free or premium track)
+ * @param username - The username claiming
+ * @param seasonId - The season id (must match current season on user doc)
+ * @param track - 'free' or 'premium'
+ * @param levelIndex - 0-4 level to claim
+ * @returns Updated User
+ */
+export async function claimSeasonReward(
+  username: string,
+  seasonId: string,
+  track: 'free' | 'premium',
+  levelIndex: number
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = userDoc.data() as User;
+  const sd = userData.seasonData;
+  if (!sd || sd.seasonId !== seasonId) throw new Error('Season data mismatch');
+
+  // Only allow claims for the current active season
+  if (seasonId !== getCurrentSeasonId()) throw new Error('Season has ended');
+
+  const config = getSeasonConfig(seasonId);
+  if (!config) throw new Error('Unknown season');
+  if (levelIndex < 0 || levelIndex >= config.levels.length) throw new Error('Invalid level');
+
+  const level = config.levels[levelIndex];
+  if (sd.meters < level.meterThreshold) throw new Error('Threshold not reached');
+
+  const claimedArray = track === 'free' ? sd.claimedFree : sd.claimedPremium;
+  if (claimedArray.includes(levelIndex)) throw new Error('Already claimed');
+  if (track === 'premium' && !sd.premiumUnlocked) throw new Error('Premium not unlocked');
+
+  const reward = track === 'free' ? level.freeReward : level.premiumReward;
+
+  // Build the Firestore update payload
+  const updates: Record<string, unknown> = {};
+  const updatedUser: User = { ...userData, extraBalls: userData.extraBalls ?? 0 };
+
+  // Mark as claimed
+  const newClaimed = [...claimedArray, levelIndex];
+  if (track === 'free') {
+    updates['seasonData.claimedFree'] = newClaimed;
+    updatedUser.seasonData = { ...sd, claimedFree: newClaimed };
+  } else {
+    updates['seasonData.claimedPremium'] = newClaimed;
+    updatedUser.seasonData = { ...sd, claimedPremium: newClaimed };
+  }
+
+  // Apply reward
+  switch (reward.type) {
+    case 'coins':
+      updates.totalCoins = userData.totalCoins + (reward.amount ?? 0);
+      updatedUser.totalCoins = updates.totalCoins as number;
+      break;
+    case 'extraBall':
+      updates.extraBalls = (userData.extraBalls ?? 0) + (reward.amount ?? 1);
+      updatedUser.extraBalls = updates.extraBalls as number;
+      break;
+    case 'ball':
+      if (reward.ballId && !userData.ownedBalls.includes(reward.ballId)) {
+        updates.ownedBalls = arrayUnion(reward.ballId);
+        updatedUser.ownedBalls = [...userData.ownedBalls, reward.ballId];
+      }
+      break;
+  }
+
+  await updateDoc(userRef, updates);
+  return updatedUser;
+}
+
+/**
+ * Purchase the premium track for a season
+ */
+export async function purchaseSeasonPremium(
+  username: string,
+  seasonId: string,
+  cost: number
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = userDoc.data() as User;
+  if (userData.totalCoins < cost) throw new Error('Not enough coins');
+
+  const currentSeasonId = getCurrentSeasonId();
+  let sd = userData.seasonData;
+
+  // Initialize season data if needed
+  if (!sd || sd.seasonId !== currentSeasonId) {
+    sd = {
+      seasonId: currentSeasonId,
+      meters: 0,
+      premiumUnlocked: true,
+      claimedFree: [],
+      claimedPremium: [],
+    };
+  } else {
+    sd = { ...sd, premiumUnlocked: true };
+  }
+
+  await updateDoc(userRef, {
+    totalCoins: userData.totalCoins - cost,
+    seasonData: sd,
+  });
+
+  return {
+    ...userData,
+    totalCoins: userData.totalCoins - cost,
+    extraBalls: userData.extraBalls ?? 0,
+    seasonData: sd,
+  };
+}
+
+/**
+ * Use one extra ball (for revival). Decrements the count.
+ */
+export async function useExtraBall(username: string): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = userDoc.data() as User;
+  const current = userData.extraBalls ?? 0;
+  if (current <= 0) throw new Error('No extra balls');
+
+  await updateDoc(userRef, { extraBalls: current - 1 });
+
+  return {
+    ...userData,
+    extraBalls: current - 1,
+  };
 }
 
