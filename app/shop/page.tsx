@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
-import { purchaseBall, selectBall } from '../lib/firestore';
+import { purchaseBall, selectBall, getUserData } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
@@ -30,12 +30,19 @@ export default function ShopPage() {
   useEffect(() => {
     const currentUser = getCurrentUser();
     if (!currentUser) {
-      // Redirect to login if not logged in
       router.push('/login');
       return;
     }
     setUser(currentUser);
     setIsLoading(false);
+
+    // Refresh from Firestore so coins/owned balls are up to date across devices.
+    getUserData(currentUser.username).then((fresh) => {
+      if (fresh) {
+        setUser(fresh);
+        setCurrentUser(fresh);
+      }
+    });
   }, [router]);
 
   // Handle ball purchase

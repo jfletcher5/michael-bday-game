@@ -95,10 +95,8 @@ export async function submitScoreViaFunction(
       distance: score.distance,
     });
     
-    console.log('Score submitted via Cloud Function:', result.data);
     return result.data;
   } catch (error) {
-    console.error('Error submitting score via Cloud Function:', error);
     throw error;
   }
 }

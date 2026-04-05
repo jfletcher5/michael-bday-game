@@ -19,7 +19,7 @@ const LEADERBOARD_COLLECTION = 'leaderboard';
 
 // Anti-cheat configuration
 const MAX_METERS_PER_SECOND = 30; // Maximum plausible score rate
-const MIN_GAME_DURATION_MS = 1000; // Minimum game duration (1 second)
+const MIN_GAME_DURATION_MS = 300; // Minimum game duration (0.3 seconds)
 const SESSION_EXPIRY_MS = 60 * 60 * 1000; // Sessions expire after 1 hour
 const SECRET_KEY = process.env.FUNCTIONS_SECRET_KEY || 'platform-drop-secret-key-2024';
 

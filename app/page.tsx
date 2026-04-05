@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { getCurrentUser } from './lib/auth';
+import { getCurrentUser, setCurrentUser as persistCurrentUser } from './lib/auth';
+import { getUserData } from './lib/firestore';
 import { User } from './lib/types';
 import { AVATAR_OPTIONS, getAvatarUrl } from './lib/avatars';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining, formatReward } from './lib/seasons';
@@ -22,19 +23,25 @@ export default function Home() {
 
   // Load player identity and user data on mount
   useEffect(() => {
-    // Check if user is logged in - require login to play
     const user = getCurrentUser();
-    
+
     if (!user) {
-      // Redirect to login if not logged in
       router.push('/login');
       return;
     }
-    
+
+    // Show the cached user immediately so the page renders fast...
     setCurrentUser(user);
-    // Use user's avatar
     setSelectedAvatarId(user.avatarId);
     setIsLoading(false);
+
+    // ...then refresh from Firestore so stats stay in sync across devices/domains.
+    getUserData(user.username).then((fresh) => {
+      if (fresh) {
+        setCurrentUser(fresh);
+        persistCurrentUser(fresh);
+      }
+    });
   }, [router]);
   
   // Handle logout - redirect to login
@@ -64,11 +71,11 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center md:justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4 py-20 sm:py-24">
       {/* Top Navigation */}
       <TopNav user={currentUser} onLogout={handleLogout} transparent />
       
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 mt-14 sm:mt-16">
+      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto">
         {/* Game Title */}
         <div className="text-center mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">

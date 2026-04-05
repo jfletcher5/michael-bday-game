@@ -109,8 +109,8 @@ export default function Leaderboard() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-2xl mx-2 sm:mx-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4 py-8">
+      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-2xl mx-2 sm:mx-4 my-auto">
         {/* Page Title */}
         <div className="text-center mb-4 sm:mb-6">
           <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">

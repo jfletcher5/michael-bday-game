@@ -58,6 +58,9 @@ function Game() {
   // Track last distance milestone for coin calculation (every 50m = 20 coins)
   const lastCoinMilestoneRef = useRef(0);
   
+  // Score save status for the game over modal
+  const [scoreSaved, setScoreSaved] = useState(true);
+
   // Extra ball revival: signal to GameCanvas to reposition ball
   const reviveSignalRef = useRef(false);
 
@@ -65,6 +68,14 @@ function Game() {
   const gameSessionRef = useRef<GameSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true); // Track session initialization state
+
+  // Lock body scroll while on the game page so the canvas stays pinned.
+  useEffect(() => {
+    document.body.classList.add('game-page');
+    return () => {
+      document.body.classList.remove('game-page');
+    };
+  }, []);
 
   // Load player identity and start game session on mount
   // Cloud Functions are REQUIRED - no fallback to prevent cheating
@@ -169,11 +180,15 @@ function Game() {
     }
 
     setGameState('gameOver');
+    await autoSaveRun();
+  };
 
-    // Auto-save stats and score in the background
+  // Shared auto-save logic used by game over and decline-revive paths.
+  const autoSaveRun = async () => {
     const user = currentUserRef.current;
     const session = gameSessionRef.current;
     const identity = getIdentity();
+    let success = true;
 
     if (user) {
       try {
@@ -182,8 +197,8 @@ function Game() {
           setCurrentUser(updatedUser);
           currentUserRef.current = updatedUser;
         }
-      } catch (error) {
-        console.error('Failed to auto-save user stats:', error);
+      } catch {
+        success = false;
       }
     }
 
@@ -195,10 +210,13 @@ function Game() {
           distance: distanceRef.current,
           date: new Date().toISOString(),
         });
-      } catch (error) {
-        console.error('Failed to auto-save score:', error);
+      } catch {
+        // Anti-cheat can reject very short runs; still show the user their local stats.
+        success = false;
       }
     }
+
+    setScoreSaved(success);
   };
 
   // Handle revival with an extra ball
@@ -220,35 +238,7 @@ function Game() {
   // Decline revival — auto-save and proceed to game over
   const handleDeclineRevive = async () => {
     setGameState('gameOver');
-
-    const user = currentUserRef.current;
-    const session = gameSessionRef.current;
-    const identity = getIdentity();
-
-    if (user) {
-      try {
-        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
-        if (updatedUser) {
-          setCurrentUser(updatedUser);
-          currentUserRef.current = updatedUser;
-        }
-      } catch (error) {
-        console.error('Failed to auto-save user stats:', error);
-      }
-    }
-
-    if (session) {
-      try {
-        await submitScoreViaFunction(session, {
-          avatarId: identity.avatarId,
-          initials: identity.initials,
-          distance: distanceRef.current,
-          date: new Date().toISOString(),
-        });
-      } catch (error) {
-        console.error('Failed to auto-save score:', error);
-      }
-    }
+    await autoSaveRun();
   };
 
   // Get player identity - user must be logged in
@@ -314,6 +304,7 @@ function Game() {
     coinsEarnedRef.current = 0;
     setDisplayDistance(0);
     setDisplayCoins(0);
+    setScoreSaved(true);
     reviveSignalRef.current = false;
     // Reset any prior boss meter for the new run.
     setBossHud(null);
@@ -481,18 +472,28 @@ function Game() {
               </div>
             </div>
 
-            <p className="text-sm text-green-600 mb-4">Score saved automatically</p>
+            {scoreSaved ? (
+              <p className="text-sm text-green-600 mb-4">Score saved automatically</p>
+            ) : (
+              <p className="text-sm text-gray-400 mb-4">Run too short to save to leaderboard</p>
+            )}
 
             <div className="space-y-3">
               <button
+                onClick={handleRestart}
+                className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all transform hover:scale-105 shadow-lg"
+              >
+                ▶ Play Again
+              </button>
+              <button
                 onClick={() => router.push('/leaderboard')}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
               >
                 View Leaderboard
               </button>
               <button
                 onClick={handleReturnToMenu}
-                className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
+                className="w-full bg-white text-gray-600 font-semibold min-h-[44px] py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
               >
                 Main Menu
               </button>

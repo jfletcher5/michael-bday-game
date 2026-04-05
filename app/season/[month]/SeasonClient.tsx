@@ -75,6 +75,62 @@ export default function SeasonClient() {
     );
   }
 
+  // Season locked: this isn't the current month yet. Show a teaser instead of the full page.
+  if (month !== getCurrentSeasonId()) {
+    const now = new Date();
+    const seasonStart = new Date(config.year, config.month - 1, 1);
+    const isPast = seasonStart < now;
+    const msUntil = seasonStart.getTime() - now.getTime();
+    const daysUntil = Math.max(0, Math.ceil(msUntil / (1000 * 60 * 60 * 24)));
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full text-center">
+          <div className="text-6xl mb-3">🔒</div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
+            {config.emoji} {config.displayName}
+          </h1>
+          {isPast ? (
+            <p className="text-gray-500 mb-6">This season has ended.</p>
+          ) : (
+            <p className="text-gray-600 mb-6">
+              Unlocks in <span className="font-bold text-purple-600">{daysUntil}</span> day{daysUntil !== 1 ? 's' : ''}
+            </p>
+          )}
+
+          {/* Preview of the season ball */}
+          <div className="flex flex-col items-center gap-2 mb-6">
+            <div className="relative">
+              <div className="absolute inset-0 -m-2 rounded-full opacity-20" style={{ backgroundColor: config.seasonBall.color }} />
+              <div
+                className="relative w-20 h-20 rounded-full flex items-center justify-center shadow-lg grayscale opacity-60"
+                style={{
+                  backgroundColor: config.seasonBall.color,
+                  borderColor: config.seasonBall.strokeColor,
+                  borderWidth: '3px',
+                  borderStyle: 'solid',
+                }}
+              >
+                {config.seasonBall.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={config.seasonBall.imageUrl} alt="" className="w-12 h-12" />
+                )}
+              </div>
+            </div>
+            <p className="text-xs font-medium text-gray-500">Season Ball: {config.seasonBall.name}</p>
+          </div>
+
+          <button
+            onClick={() => router.push('/')}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:scale-105 transition-all shadow-lg"
+          >
+            Back to Menu
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const sd = user?.seasonData?.seasonId === month ? user.seasonData : null;
   const seasonMeters = sd?.meters ?? 0;
   const premiumUnlocked = sd?.premiumUnlocked ?? false;

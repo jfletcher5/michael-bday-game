@@ -56,11 +56,19 @@ interface Challenge300State {
 // Core gameplay constants used by physics and rendering.
 const BALL_RADIUS = 20;
 const PLATFORM_HEIGHT = 20;
-const INITIAL_SCROLL_SPEED = 1.5;
+// Time (in seconds) for a platform to travel from the bottom of the screen to the top.
+// Lower number = faster scroll. This is resolution-independent.
+const INITIAL_SCROLL_SECONDS = 4;
 const PLATFORM_SPAWN_Y = 100;
 const JUMP_FORCE = 0.18;
 const BOMB_RADIUS = 15;
 const BOMB_SPAWN_CHANCE = 0.3;
+
+// Convert target traversal time into pixels-per-60Hz-frame for a given canvas height.
+// At 60 FPS, we need `canvasHeight / (seconds * 60)` pixels per frame.
+function scrollSpeedForHeight(canvasHeight: number, seconds: number): number {
+  return canvasHeight / (seconds * 60);
+}
 
 /**
  * GameCanvas Component
@@ -89,8 +97,8 @@ export default function GameCanvas({
   const platformsRef = useRef<Matter.Body[]>([]);
   const bombsRef = useRef<Bomb[]>([]);
   const scrollDistanceRef = useRef(0);
-  const scrollSpeedRef = useRef(INITIAL_SCROLL_SPEED);
-  const originalScrollSpeedRef = useRef(INITIAL_SCROLL_SPEED);
+  const scrollSpeedRef = useRef(0);
+  const originalScrollSpeedRef = useRef(0);
   const controlsRef = useRef(controls);
   const isGroundedRef = useRef(false);
   const hasJumpedRef = useRef(false);
@@ -509,8 +517,9 @@ export default function GameCanvas({
 
     // Reset dynamic run state.
     scrollDistanceRef.current = 0;
-    scrollSpeedRef.current = INITIAL_SCROLL_SPEED;
-    originalScrollSpeedRef.current = INITIAL_SCROLL_SPEED;
+    const initialSpeed = scrollSpeedForHeight(height, INITIAL_SCROLL_SECONDS);
+    scrollSpeedRef.current = initialSpeed;
+    originalScrollSpeedRef.current = initialSpeed;
     nextBossEncounterIndexRef.current = 0;
     activeBossEncounterRef.current = null;
     challenge300Ref.current = {
@@ -635,7 +644,7 @@ export default function GameCanvas({
 
         // If player fell off the challenge platform, resume scrolling so they don't softlock.
         if (challenge300Ref.current.isOnPlatform && !isOnChallengePlatform && ball.position.y < challengePlatform.bounds.min.y - 50) {
-          scrollSpeedRef.current = originalScrollSpeedRef.current || INITIAL_SCROLL_SPEED;
+          scrollSpeedRef.current = originalScrollSpeedRef.current || scrollSpeedForHeight(height, INITIAL_SCROLL_SECONDS);
           challenge300Ref.current.isOnPlatform = false;
         }
       }
@@ -669,7 +678,7 @@ export default function GameCanvas({
               Matter.World.remove(engineRef.current.world, wallBody);
               breakableWallRef.current = null;
               challenge300Ref.current.wallBroken = true;
-              scrollSpeedRef.current = originalScrollSpeedRef.current || INITIAL_SCROLL_SPEED;
+              scrollSpeedRef.current = originalScrollSpeedRef.current || scrollSpeedForHeight(height, INITIAL_SCROLL_SECONDS);
             }
           }
         }
@@ -794,7 +803,7 @@ export default function GameCanvas({
           emitBossHud(null);
 
           // Resume scrolling and advance to next explicit encounter entry.
-          scrollSpeedRef.current = originalScrollSpeedRef.current || INITIAL_SCROLL_SPEED;
+          scrollSpeedRef.current = originalScrollSpeedRef.current || scrollSpeedForHeight(height, INITIAL_SCROLL_SECONDS);
           nextBossEncounterIndexRef.current += 1;
           activeBossEncounterRef.current = null;
         }
@@ -1070,8 +1079,15 @@ export default function GameCanvas({
     // to account for browser chrome (URL bar, toolbar).
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const prevHeight = canvas.height;
     canvas.width = window.innerWidth;
     canvas.height = window.visualViewport?.height ?? window.innerHeight;
+    // Scale current scroll speed proportionally so visual speed stays constant.
+    if (prevHeight > 0 && scrollSpeedRef.current > 0) {
+      const ratio = canvas.height / prevHeight;
+      scrollSpeedRef.current *= ratio;
+      originalScrollSpeedRef.current *= ratio;
+    }
   }, []);
 
   // Keep a mutable reference so animation frames can call the latest loop logic.
@@ -1091,19 +1107,27 @@ export default function GameCanvas({
     };
   }, [emitBossHud, handleResize, initializeGame]);
 
+  const wasPlayingRef = useRef(false);
   useEffect(() => {
     if (isPlaying) {
+      // Re-initialize the world if transitioning from stopped (e.g. Play Again).
+      // Skip re-init if we're resuming from a revival (reviveSignalRef handles that).
+      if (!wasPlayingRef.current && !reviveSignalRef?.current) {
+        initializeGame();
+      }
+      wasPlayingRef.current = true;
       lastFrameTimeRef.current = 0;
       accumulatorRef.current = 0;
       scheduleNextFrame();
-    } else if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
+    } else {
+      wasPlayingRef.current = false;
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     }
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [isPlaying, gameLoop, scheduleNextFrame]);
+  }, [isPlaying, gameLoop, scheduleNextFrame, initializeGame, reviveSignalRef]);
 
   return (
     <canvas
