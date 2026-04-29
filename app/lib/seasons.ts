@@ -1,4 +1,4 @@
-import { BallType } from './types';
+import type { BallType } from './types';
 
 /**
  * Reward granted at a season achievement level.
@@ -168,11 +168,8 @@ export function getDaysRemaining(seasonId: string): number {
   return Math.max(0, remaining);
 }
 
-/** Detailed time remaining: days, hours, minutes. */
-export function getTimeRemaining(seasonId: string): { days: number; hours: number; minutes: number } {
-  const config = getSeasonConfig(seasonId);
-  if (!config) return { days: 0, hours: 0, minutes: 0 };
-
+/** Detailed time remaining for an already-loaded season config. */
+export function getTimeRemainingForConfig(config: SeasonConfig): { days: number; hours: number; minutes: number } {
   const now = new Date();
   const seasonEnd = new Date(config.year, config.month, 1);
   const diff = Math.max(0, seasonEnd.getTime() - now.getTime());
@@ -180,6 +177,14 @@ export function getTimeRemaining(seasonId: string): { days: number; hours: numbe
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   return { days, hours, minutes };
+}
+
+/** Detailed time remaining: days, hours, minutes. */
+export function getTimeRemaining(seasonId: string): { days: number; hours: number; minutes: number } {
+  const config = getSeasonConfig(seasonId);
+  if (!config) return { days: 0, hours: 0, minutes: 0 };
+
+  return getTimeRemainingForConfig(config);
 }
 
 /** Look up a season ball across all configs by ball id. */

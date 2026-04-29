@@ -7,8 +7,8 @@
 3. Click on the **gear icon** (⚙️) next to "Project Overview" → **Project settings**
 4. Scroll down to **"Your apps"** section
 5. If you haven't added a web app yet:
-   - Click **"Add app"** → Select **Web** (</> icon)
-   - Register your app with a nickname (e.g., "Michael's Birthday Game")
+  - Click **"Add app"** → Select **Web** (</> icon)
+  - Register your app with a nickname (e.g., "Michael's Birthday Game")
 6. Copy the **firebaseConfig** object that looks like this:
 
 ```javascript
@@ -59,13 +59,34 @@ firebase deploy --only firestore:rules
 ## Step 5: Test the Leaderboard
 
 1. Run your development server:
-   ```bash
+  ```bash
    npm run dev
-   ```
-
+  ```
 2. Play the game in infinite mode
 3. Save your score
 4. Check the leaderboard to see if scores are appearing
+
+## Seed Season Pass Rewards
+
+Season pass reward definitions live in the `seasonConfigs` collection. The app
+reads those documents first and falls back to the checked-in configs if a season
+document is missing or Firestore cannot be reached.
+
+Deploy the updated Firestore rules before seeding:
+
+```bash
+npx -y firebase-tools@latest deploy --only firestore:rules
+```
+
+Then seed the current checked-in season configs:
+
+```bash
+FIREBASE_PROJECT_ID=michaels-web-game npm run seed:seasons
+```
+
+The seed script uses Firebase Admin credentials. Set
+`GOOGLE_APPLICATION_CREDENTIALS` to a service account JSON file, or provide the
+JSON directly in `FIREBASE_SERVICE_ACCOUNT`.
 
 ## What Changed
 
@@ -94,15 +115,48 @@ Scores are stored in the `leaderboard` collection with the following structure:
 }
 ```
 
+Season pass rewards are stored in `seasonConfigs/{seasonId}`:
+
+```typescript
+{
+  id: string,             // e.g. "april-2026"
+  displayName: string,    // e.g. "April 2026"
+  month: number,          // 1-indexed month number
+  year: number,
+  premiumCost: number,    // coins to unlock premium rewards
+  emoji: string,
+  seasonBall: {
+    id: string,
+    name: string,
+    price: number,
+    color: string,
+    strokeColor: string,
+    isDefault: boolean,
+    imageUrl?: string,
+    description?: string
+  },
+  levels: [
+    {
+      meterThreshold: number,
+      freeReward: { type: 'coins' | 'extraBall' | 'ball', amount?: number, ballId?: string },
+      premiumReward: { type: 'coins' | 'extraBall' | 'ball', amount?: number, ballId?: string }
+    }
+  ]
+}
+```
+
 ## Troubleshooting
 
 **Error: "Firebase: No Firebase App '[DEFAULT]' has been created"**
+
 - Make sure you've updated the Firebase config in `app/lib/firebase.ts`
 
 **Error: "Missing or insufficient permissions"**
+
 - Deploy the Firestore rules: `firebase deploy --only firestore:rules`
 
 **Scores not appearing:**
+
 - Check browser console for errors
 - Verify Firestore database is created in Firebase Console
 - Check that rules are deployed correctly

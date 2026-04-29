@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:seasons": "tsx scripts/seedSeasonConfigs.ts"
   },
   "dependencies": {
     "@types/matter-js": "^0.20.2",
@@ -23,7 +24,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.0",
+    "firebase-admin": "^13.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

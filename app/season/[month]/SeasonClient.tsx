@@ -4,11 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { User } from '../../lib/types';
 import { getCurrentUser, setCurrentUser } from '../../lib/auth';
-import { claimSeasonReward, purchaseSeasonPremium, getUserData } from '../../lib/firestore';
+import { claimSeasonReward, purchaseSeasonPremium, getUserData, getSeasonConfigWithFallback } from '../../lib/firestore';
 import {
-  getSeasonConfig,
   getCurrentSeasonId,
-  getTimeRemaining,
+  getTimeRemainingForConfig,
   formatReward,
   rewardEmoji,
   SeasonConfig,
@@ -30,34 +29,57 @@ export default function SeasonClient() {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0 });
 
   useEffect(() => {
-    const u = getCurrentUser();
-    if (!u) {
-      router.push('/login');
-      return;
+    let isCancelled = false;
+
+    async function loadSeasonPage() {
+      const currentUser = getCurrentUser();
+      if (!currentUser) {
+        router.push('/login');
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+      setUser(currentUser);
+
+      // Load config and user in parallel so Firestore-backed rewards don't add
+      // an unnecessary waterfall before the page can render.
+      const [loadedConfig, freshUser] = await Promise.all([
+        getSeasonConfigWithFallback(month),
+        getUserData(currentUser.username),
+      ]);
+
+      if (isCancelled) return;
+
+      if (freshUser) {
+        setUser(freshUser);
+        setCurrentUser(freshUser);
+      }
+
+      setConfig(loadedConfig);
+      setTimeLeft(loadedConfig ? getTimeRemainingForConfig(loadedConfig) : { days: 0, hours: 0, minutes: 0 });
+      setIsLoading(false);
     }
-    setUser(u);
 
-    const c = getSeasonConfig(month);
-    setConfig(c);
-    setTimeLeft(getTimeRemaining(month));
-    setIsLoading(false);
+    loadSeasonPage().catch((err) => {
+      if (isCancelled) return;
+      setError(err instanceof Error ? err.message : 'Failed to load season');
+      setIsLoading(false);
+    });
 
-    // Update countdown every minute
-    const timer = setInterval(() => setTimeLeft(getTimeRemaining(month)), 60_000);
-    return () => clearInterval(timer);
+    return () => {
+      isCancelled = true;
+    };
   }, [month, router]);
 
-  // Refresh user from Firestore to ensure we have latest season data
   useEffect(() => {
-    if (!user) return;
-    getUserData(user.username).then((fresh) => {
-      if (fresh) {
-        setUser(fresh);
-        setCurrentUser(fresh);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!config) return;
+
+    // Keep the countdown tied to the loaded config so Firestore date changes
+    // are reflected without relying on the local fallback lookup.
+    const timer = setInterval(() => setTimeLeft(getTimeRemainingForConfig(config)), 60_000);
+    return () => clearInterval(timer);
+  }, [config]);
 
   if (isLoading) return null;
 

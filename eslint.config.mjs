@@ -9,6 +9,10 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Firebase hosting/functions build output is generated and can contain
+    // bundled CommonJS/runtime code that does not follow source lint rules.
+    ".firebase/**",
+    "functions/lib/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

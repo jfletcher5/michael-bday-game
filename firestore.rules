@@ -14,6 +14,12 @@ service cloud.firestore {
     match /gameSessions/{session} {
       allow read, write: if false; // Only Cloud Functions can access
     }
+
+    // Season pass reward definitions: clients can read, seed/admin tools write
+    match /seasonConfigs/{seasonId} {
+      allow read: if true;
+      allow write: if false; // Only Admin SDK seed scripts can write
+    }
     
     // Allow read access to levels
     match /levels/{level} {

@@ -20,6 +20,7 @@ import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
 import { Score, User, SeasonData, LoginCredentials } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
+import type { SeasonConfig } from './seasons';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -228,6 +229,9 @@ export async function getTotalScoreCount(): Promise<number> {
 
 // Collection name for users
 const USERS_COLLECTION = 'users';
+
+// Collection name for season pass reward definitions
+const SEASON_CONFIGS_COLLECTION = 'seasonConfigs';
 
 /**
  * Create a new user account
@@ -496,6 +500,36 @@ export async function selectBall(
 // ============================================
 
 /**
+ * Fetch a season reward config from Firestore.
+ * Returns null when the document is missing or unreadable so callers can use
+ * the checked-in config as a fallback.
+ */
+export async function getSeasonConfigFromFirestore(seasonId: string): Promise<SeasonConfig | null> {
+  try {
+    const seasonDoc = await getDoc(doc(db, SEASON_CONFIGS_COLLECTION, seasonId));
+    if (!seasonDoc.exists()) return null;
+
+    const data = seasonDoc.data() as SeasonConfig;
+    return {
+      ...data,
+      id: data.id ?? seasonDoc.id,
+    };
+  } catch (error) {
+    console.error('Error fetching season config from Firestore:', error);
+    return null;
+  }
+}
+
+/**
+ * Read season reward details from Firestore first, then fall back to the local
+ * definitions so static exports and offline/missing docs continue to work.
+ */
+export async function getSeasonConfigWithFallback(seasonId: string): Promise<SeasonConfig | null> {
+  const firestoreConfig = await getSeasonConfigFromFirestore(seasonId);
+  return firestoreConfig ?? getSeasonConfig(seasonId);
+}
+
+/**
  * Claim a season reward (free or premium track)
  * @param username - The username claiming
  * @param seasonId - The season id (must match current season on user doc)
@@ -520,7 +554,7 @@ export async function claimSeasonReward(
   // Only allow claims for the current active season
   if (seasonId !== getCurrentSeasonId()) throw new Error('Season has ended');
 
-  const config = getSeasonConfig(seasonId);
+  const config = await getSeasonConfigWithFallback(seasonId);
   if (!config) throw new Error('Unknown season');
   if (levelIndex < 0 || levelIndex >= config.levels.length) throw new Error('Invalid level');
 
@@ -581,10 +615,19 @@ export async function purchaseSeasonPremium(
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
-  const userData = userDoc.data() as User;
-  if (userData.totalCoins < cost) throw new Error('Not enough coins');
-
   const currentSeasonId = getCurrentSeasonId();
+  if (seasonId !== currentSeasonId) throw new Error('Season has ended');
+
+  const config = await getSeasonConfigWithFallback(seasonId);
+  if (!config) throw new Error('Unknown season');
+
+  const userData = userDoc.data() as User;
+  const premiumCost = config.premiumCost;
+  if (cost !== premiumCost) {
+    console.warn(`Ignoring stale premium cost ${cost}; using configured cost ${premiumCost}`);
+  }
+  if (userData.totalCoins < premiumCost) throw new Error('Not enough coins');
+
   let sd = userData.seasonData;
 
   // Initialize season data if needed
@@ -601,13 +644,13 @@ export async function purchaseSeasonPremium(
   }
 
   await updateDoc(userRef, {
-    totalCoins: userData.totalCoins - cost,
+    totalCoins: userData.totalCoins - premiumCost,
     seasonData: sd,
   });
 
   return {
     ...userData,
-    totalCoins: userData.totalCoins - cost,
+    totalCoins: userData.totalCoins - premiumCost,
     extraBalls: userData.extraBalls ?? 0,
     seasonData: sd,
   };
