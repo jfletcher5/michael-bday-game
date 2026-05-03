@@ -47,10 +47,10 @@ function validateInitials(initials: string): boolean {
 }
 
 /**
- * Validate avatar ID (1-9)
+ * Validate avatar ID (1-10)
  */
 function validateAvatarId(avatarId: number): boolean {
-  return Number.isInteger(avatarId) && avatarId >= 1 && avatarId <= 9;
+  return Number.isInteger(avatarId) && avatarId >= 1 && avatarId <= 10;
 }
 
 // ============================================

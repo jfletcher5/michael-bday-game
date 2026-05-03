@@ -78,6 +78,17 @@ export const BALL_TYPES: BallType[] = [
     imageUrl: `${TWEMOJI_BASE}/2601.svg`, // ☁️ Cloud (fluffy like a marshmallow)
     description: 'The legendary marshmallow ball. Soft, sweet, and extremely rare!',
   },
+  {
+    id: 'macy',
+    name: 'Macy',
+    price: 50000,
+    color: '#3b2a20',
+    strokeColor: '#ffffff',
+    isDefault: false,
+    imageUrl: '/macy_pic.jpeg',
+    imageCover: true,
+    description: 'Go far with Macy Ball!',
+  },
 ];
 
 /**

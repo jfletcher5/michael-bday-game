@@ -5,14 +5,15 @@
  * Avatar option interface
  */
 export interface AvatarOption {
-  id: number;        // Unique identifier (1-9)
-  seed: string;      // DiceBear seed for consistent avatar generation
-  name: string;      // Display name for the avatar
+  id: number;          // Unique identifier
+  seed: string;        // DiceBear seed for consistent avatar generation
+  name: string;        // Display name for the avatar
+  imageUrl?: string;   // Optional override that bypasses DiceBear (e.g. a local sticker asset)
 }
 
 /**
- * 9 pre-defined avatar options using kid-friendly seeds
- * These generate consistent, colorful cartoon-style avatars
+ * Pre-defined avatar options. Most generate via DiceBear from a seed; some
+ * use a local sticker image instead.
  */
 export const AVATAR_OPTIONS: AvatarOption[] = [
   { id: 1, seed: 'felix', name: 'Felix' },
@@ -23,7 +24,7 @@ export const AVATAR_OPTIONS: AvatarOption[] = [
   { id: 6, seed: 'daisy', name: 'Daisy' },
   { id: 7, seed: 'charlie', name: 'Charlie' },
   { id: 8, seed: 'ruby', name: 'Ruby' },
-  { id: 9, seed: 'max', name: 'Max' },
+  { id: 10, seed: 'macy', name: 'Macy', imageUrl: '/macy_sticker.png' },
 ];
 
 /**
@@ -39,6 +40,7 @@ const DICEBEAR_BASE_URL = 'https://api.dicebear.com/9.x/adventurer/svg';
  */
 export function getAvatarUrl(avatarId: number): string {
   const avatar = AVATAR_OPTIONS.find(a => a.id === avatarId);
+  if (avatar?.imageUrl) return avatar.imageUrl;
   const seed = avatar?.seed || 'default';
   return `${DICEBEAR_BASE_URL}?seed=${seed}`;
 }

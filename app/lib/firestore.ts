@@ -7,14 +7,15 @@ import {
   setDoc,
   updateDoc,
   doc,
-  query, 
-  orderBy, 
+  query,
+  orderBy,
   limit,
   startAfter,
   Timestamp,
   QueryDocumentSnapshot,
   DocumentData,
-  arrayUnion
+  arrayUnion,
+  where
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
@@ -307,6 +308,23 @@ export async function loginUser(credentials: LoginCredentials): Promise<User> {
   } catch (error) {
     console.error('Error logging in:', error);
     throw error;
+  }
+}
+
+/**
+ * Fetch the set of usernames flagged as verified.
+ * Used by the leaderboard to render verified badges next to player names.
+ */
+export async function getVerifiedUsernames(): Promise<Set<string>> {
+  try {
+    const q = query(collection(db, USERS_COLLECTION), where('verified', '==', true));
+    const snap = await getDocs(q);
+    const result = new Set<string>();
+    snap.docs.forEach((d) => result.add(d.id.toUpperCase()));
+    return result;
+  } catch (error) {
+    console.error('Error fetching verified usernames:', error);
+    return new Set();
   }
 }
 

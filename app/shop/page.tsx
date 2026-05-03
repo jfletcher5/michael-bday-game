@@ -134,9 +134,9 @@ export default function ShopPage() {
               <Image
                 src={ball.imageUrl}
                 alt={ball.name}
-                width={56}
-                height={56}
-                className="w-14 h-14"
+                width={80}
+                height={80}
+                className={ball.imageCover ? 'w-full h-full object-cover' : 'w-14 h-14'}
                 style={ball.imageFilter ? { filter: ball.imageFilter } : undefined}
                 unoptimized
               />

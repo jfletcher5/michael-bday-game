@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { getScoresFromFirestore, PaginatedScoresResult } from '../lib/firestore';
+import { getScoresFromFirestore, getVerifiedUsernames, PaginatedScoresResult } from '../lib/firestore';
 import { Score } from '../lib/types';
 import { getAvatarUrl } from '../lib/avatars';
 import { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import VerifiedBadge from '../components/VerifiedBadge';
 
 // Number of scores to display per page
 const PAGE_SIZE = 5;
@@ -19,6 +20,7 @@ const PAGE_SIZE = 5;
 export default function Leaderboard() {
   const router = useRouter();
   const [scores, setScores] = useState<Score[]>([]);
+  const [verifiedSet, setVerifiedSet] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -54,6 +56,7 @@ export default function Leaderboard() {
   // Load first page on mount
   useEffect(() => {
     loadPage(1, null);
+    getVerifiedUsernames().then(setVerifiedSet);
   }, []);
 
   // Handle "Next" page navigation
@@ -199,6 +202,9 @@ export default function Leaderboard() {
                             <span className="font-bold text-gray-800 text-sm sm:text-lg tracking-wide">
                               {score.initials}
                             </span>
+                            {verifiedSet.has(score.initials.toUpperCase()) && (
+                              <VerifiedBadge size={18} />
+                            )}
                           </div>
                         </td>
                         <td className="py-3 sm:py-4 px-2 sm:px-4 text-right font-semibold text-purple-600 text-sm sm:text-lg">

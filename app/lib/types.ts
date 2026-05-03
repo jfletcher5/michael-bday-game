@@ -33,6 +33,7 @@ export interface User {
   createdAt: string;     // ISO date string when account was created
   extraBalls: number;    // Count of extra-ball revival items
   seasonData: SeasonData | null; // Current season progress (null if never interacted)
+  verified?: boolean;    // True for users granted a verified badge in the leaderboard
 }
 
 /**
@@ -47,6 +48,7 @@ export interface BallType {
   isDefault: boolean;    // Whether this is the free default ball
   imageUrl?: string;     // Optional image URL for themed balls (Twemoji SVG)
   imageFilter?: string;  // Optional CSS filter to apply to the image (e.g., for color tinting)
+  imageCover?: boolean;  // If true, the image fills the ball preview (object-cover) instead of sitting inset
   description?: string;  // Optional description for the shop
 }
 
