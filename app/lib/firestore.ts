@@ -312,6 +312,21 @@ export async function loginUser(credentials: LoginCredentials): Promise<User> {
 }
 
 /**
+ * Persist a user's selected avatar.
+ * Updates both Firestore and the returned User snapshot.
+ */
+export async function updateUserAvatar(username: string, avatarId: number): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  await updateDoc(userRef, { avatarId });
+
+  const userData = userDoc.data() as User;
+  return { ...userData, avatarId };
+}
+
+/**
  * Fetch the set of usernames flagged as verified.
  * Used by the leaderboard to render verified badges next to player names.
  */

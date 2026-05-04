@@ -1,21 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { getScoresFromFirestore, getVerifiedUsernames, PaginatedScoresResult } from '../lib/firestore';
+import { getScoresFromFirestore, getVerifiedUsernames } from '../lib/firestore';
 import { Score } from '../lib/types';
 import { getAvatarUrl } from '../lib/avatars';
-import { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import VerifiedBadge from '../components/VerifiedBadge';
 
-// Number of scores to display per page
-const PAGE_SIZE = 5;
+// Maximum number of scores shown in the scrollable leaderboard
+const MAX_SCORES = 200;
 
 /**
  * Leaderboard Page
- * Displays top scores from Firebase Firestore sorted by distance (descending)
- * Features paginated display with Previous/Next navigation
+ * Displays the top scores from Firestore sorted by distance (descending)
+ * in a single scrollable list capped at MAX_SCORES entries.
  */
 export default function Leaderboard() {
   const router = useRouter();
@@ -23,27 +22,12 @@ export default function Leaderboard() {
   const [verifiedSet, setVerifiedSet] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  // Store cursors for each page to enable "Previous" navigation
-  const [pageCursors, setPageCursors] = useState<(QueryDocumentSnapshot<DocumentData> | null)[]>([null]);
 
-  // Load scores for a specific page
-  const loadPage = useCallback(async (pageNum: number, startAfterDoc?: QueryDocumentSnapshot<DocumentData> | null) => {
+  const loadScores = async () => {
     try {
       setIsLoading(true);
-      const result: PaginatedScoresResult = await getScoresFromFirestore(PAGE_SIZE, startAfterDoc);
+      const result = await getScoresFromFirestore(MAX_SCORES, null);
       setScores(result.scores);
-      setHasMore(result.hasMore);
-      setCurrentPage(pageNum);
-      
-      // Store the cursor for this page (for navigating back)
-      if (result.lastDoc && pageNum >= pageCursors.length) {
-        setPageCursors(prev => [...prev, result.lastDoc]);
-      }
-      
       setError(null);
     } catch (err) {
       console.error('Failed to load scores:', err);
@@ -51,51 +35,17 @@ export default function Leaderboard() {
     } finally {
       setIsLoading(false);
     }
-  }, [pageCursors.length]);
+  };
 
-  // Load first page on mount
   useEffect(() => {
-    loadPage(1, null);
+    loadScores();
     getVerifiedUsernames().then(setVerifiedSet);
   }, []);
 
-  // Handle "Next" page navigation
-  const handleNextPage = () => {
-    if (hasMore && !isLoading) {
-      // Get the cursor from the last loaded page
-      const lastCursor = pageCursors[currentPage] || null;
-      loadPage(currentPage + 1, lastCursor);
-    }
-  };
-
-  // Handle "Previous" page navigation
-  const handlePreviousPage = () => {
-    if (currentPage > 1 && !isLoading) {
-      // Go back to previous page using stored cursor
-      // For page 2, we use null (first page); for page 3+, we use the cursor from page-2
-      const prevCursor = currentPage > 2 ? pageCursors[currentPage - 2] : null;
-      loadPage(currentPage - 1, prevCursor);
-    }
-  };
-
-  // Handle "Go to Top" navigation - jump to page 1
-  const handleGoToTop = () => {
-    if (currentPage > 1 && !isLoading) {
-      loadPage(1, null);
-    }
-  };
-
-  // Navigate back to main menu
   const handleBackToMenu = () => {
     router.push('/');
   };
 
-  // Calculate rank based on page and index
-  const getRank = (index: number): number => {
-    return (currentPage - 1) * PAGE_SIZE + index + 1;
-  };
-
-  // Get rank display (medal or number)
   const getRankDisplay = (rank: number): string => {
     if (rank === 1) return '🥇';
     if (rank === 2) return '🥈';
@@ -103,7 +53,6 @@ export default function Leaderboard() {
     return `${rank}.`;
   };
 
-  // Get rank style class
   const getRankStyle = (rank: number): string => {
     if (rank === 1) return 'text-yellow-600 text-xl';
     if (rank === 2) return 'text-gray-500 text-lg';
@@ -120,22 +69,9 @@ export default function Leaderboard() {
             Leaderboard
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
-            Top Players
+            Top {MAX_SCORES} Players
           </p>
         </div>
-
-        {/* Go to Top Button - Only show when not on page 1 */}
-        {currentPage > 1 && !isLoading && (
-          <div className="mb-4">
-            <button
-              onClick={handleGoToTop}
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[44px] py-2 px-4 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-md text-sm"
-            >
-              Go to Top of Leaderboard
-            </button>
-          </div>
-        )}
 
         {/* Leaderboard Table */}
         {isLoading && scores.length === 0 ? (
@@ -145,8 +81,8 @@ export default function Leaderboard() {
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-red-500 mb-2">{error}</p>
-            <button 
-              onClick={() => loadPage(1, null)} 
+            <button
+              onClick={loadScores}
               className="text-purple-600 hover:text-purple-700 underline"
             >
               Retry
@@ -157,11 +93,10 @@ export default function Leaderboard() {
             No scores yet. Be the first to play!
           </div>
         ) : (
-          <div>
-            {/* Leaderboard entries */}
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="max-h-[60vh] overflow-y-auto">
               <table className="w-full">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr className="border-b border-gray-200">
                     <th className="py-2 sm:py-3 px-2 sm:px-3 text-left text-xs sm:text-sm font-semibold text-gray-700 w-10 sm:w-16">
                       Rank
@@ -176,9 +111,9 @@ export default function Leaderboard() {
                 </thead>
                 <tbody>
                   {scores.map((score, index) => {
-                    const rank = getRank(index);
+                    const rank = index + 1;
                     return (
-                      <tr 
+                      <tr
                         key={index}
                         className={`border-b border-gray-100 hover:bg-gray-50 transition ${
                           rank === 1 ? 'bg-yellow-50' : ''
@@ -215,40 +150,6 @@ export default function Leaderboard() {
                   })}
                 </tbody>
               </table>
-            </div>
-
-            {/* Pagination Controls */}
-            <div className="flex items-center justify-between mt-4 sm:mt-6">
-              <button
-                onClick={handlePreviousPage}
-                disabled={currentPage === 1 || isLoading}
-                className={`flex items-center gap-1 sm:gap-2 min-h-[44px] px-3 sm:px-4 py-2 rounded-lg font-medium text-sm transition ${
-                  currentPage === 1 || isLoading
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                <span>&larr;</span>
-                <span className="hidden sm:inline">Previous</span>
-                <span className="sm:hidden">Prev</span>
-              </button>
-
-              <span className="text-gray-600 font-medium text-sm">
-                Page {currentPage}
-              </span>
-
-              <button
-                onClick={handleNextPage}
-                disabled={!hasMore || isLoading}
-                className={`flex items-center gap-1 sm:gap-2 min-h-[44px] px-3 sm:px-4 py-2 rounded-lg font-medium text-sm transition ${
-                  !hasMore || isLoading
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                <span>Next</span>
-                <span>&rarr;</span>
-              </button>
             </div>
           </div>
         )}

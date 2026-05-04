@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser as persistCurrentUser } from './lib/auth';
-import { getUserData } from './lib/firestore';
+import { getUserData, updateUserAvatar } from './lib/firestore';
 import { User } from './lib/types';
 import { AVATAR_OPTIONS, getAvatarUrl } from './lib/avatars';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining, formatReward } from './lib/seasons';
@@ -48,6 +48,25 @@ export default function Home() {
   const handleLogout = () => {
     setCurrentUser(null);
     router.push('/login');
+  };
+
+  // Persist avatar choice to Firestore + cached user so the selection survives reloads.
+  const handleSelectAvatar = (avatarId: number) => {
+    setSelectedAvatarId(avatarId);
+    if (!currentUser || avatarId === currentUser.avatarId) return;
+
+    const optimistic: User = { ...currentUser, avatarId };
+    setCurrentUser(optimistic);
+    persistCurrentUser(optimistic);
+
+    updateUserAvatar(currentUser.username, avatarId)
+      .then((updated) => {
+        setCurrentUser(updated);
+        persistCurrentUser(updated);
+      })
+      .catch((err) => {
+        console.error('Failed to save avatar selection:', err);
+      });
   };
 
   // Check if player can start game (must be logged in and have avatar selected)
@@ -97,7 +116,7 @@ export default function Home() {
               {AVATAR_OPTIONS.map((avatar) => (
                 <button
                   key={avatar.id}
-                  onClick={() => setSelectedAvatarId(avatar.id)}
+                  onClick={() => handleSelectAvatar(avatar.id)}
                   className={`relative p-2 sm:p-3 rounded-xl transition-all transform hover:scale-105 min-h-[60px] ${
                     selectedAvatarId === avatar.id
                       ? 'bg-purple-100 ring-2 ring-purple-500 shadow-md'

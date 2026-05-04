@@ -69,33 +69,42 @@ const JUNE_2026_BALL: BallType = {
   description: 'Season exclusive — June 2026',
 };
 
-const STANDARD_LEVELS = (seasonBall: BallType): SeasonLevel[] => [
-  {
-    meterThreshold: 1000,
-    freeReward: { type: 'coins', amount: 200 },
-    premiumReward: { type: 'coins', amount: 500 },
-  },
-  {
-    meterThreshold: 2000,
-    freeReward: { type: 'coins', amount: 500 },
-    premiumReward: { type: 'extraBall', amount: 1 },
-  },
-  {
-    meterThreshold: 3000,
-    freeReward: { type: 'coins', amount: 1000 },
-    premiumReward: { type: 'coins', amount: 1000 },
-  },
-  {
-    meterThreshold: 4000,
-    freeReward: { type: 'coins', amount: 2000 },
-    premiumReward: { type: 'coins', amount: 1500 },
-  },
-  {
-    meterThreshold: 5000,
-    freeReward: { type: 'coins', amount: 5000 },
-    premiumReward: { type: 'ball', ballId: seasonBall.id },
-  },
-];
+// 25-tier season pass.
+//   Free track (bottom row):     1 revive ball every 6 tiers (6, 12, 18, 24); otherwise 200 coins.
+//   Premium track (top row):     1 revive ball every 3 tiers (3, 6, 9, 12, 15, 18, 21, 24);
+//                                 the season-exclusive ball at tier 25; otherwise 200 coins.
+//   Thresholds: 1000m per tier (1k–25k).
+const TOTAL_TIERS = 25;
+const METERS_PER_TIER = 1000;
+const COIN_REWARD = 200;
+const FREE_REVIVE_EVERY = 6;
+const PREMIUM_REVIVE_EVERY = 3;
+
+const STANDARD_LEVELS = (seasonBall: BallType): SeasonLevel[] => {
+  const levels: SeasonLevel[] = [];
+  for (let i = 1; i <= TOTAL_TIERS; i++) {
+    const freeReward: SeasonReward =
+      i % FREE_REVIVE_EVERY === 0
+        ? { type: 'extraBall', amount: 1 }
+        : { type: 'coins', amount: COIN_REWARD };
+
+    let premiumReward: SeasonReward;
+    if (i === TOTAL_TIERS) {
+      premiumReward = { type: 'ball', ballId: seasonBall.id };
+    } else if (i % PREMIUM_REVIVE_EVERY === 0) {
+      premiumReward = { type: 'extraBall', amount: 1 };
+    } else {
+      premiumReward = { type: 'coins', amount: COIN_REWARD };
+    }
+
+    levels.push({
+      meterThreshold: i * METERS_PER_TIER,
+      freeReward,
+      premiumReward,
+    });
+  }
+  return levels;
+};
 
 export const SEASON_CONFIGS: SeasonConfig[] = [
   {
@@ -103,7 +112,7 @@ export const SEASON_CONFIGS: SeasonConfig[] = [
     displayName: 'April 2026',
     month: 4,
     year: 2026,
-    premiumCost: 2500,
+    premiumCost: 15000,
     emoji: '☢️',
     seasonBall: APRIL_2026_BALL,
     levels: STANDARD_LEVELS(APRIL_2026_BALL),
@@ -113,7 +122,7 @@ export const SEASON_CONFIGS: SeasonConfig[] = [
     displayName: 'May 2026',
     month: 5,
     year: 2026,
-    premiumCost: 2500,
+    premiumCost: 15000,
     emoji: '🔴',
     seasonBall: MAY_2026_BALL,
     levels: STANDARD_LEVELS(MAY_2026_BALL),
@@ -123,7 +132,7 @@ export const SEASON_CONFIGS: SeasonConfig[] = [
     displayName: 'June 2026',
     month: 6,
     year: 2026,
-    premiumCost: 2500,
+    premiumCost: 15000,
     emoji: '☯️',
     seasonBall: JUNE_2026_BALL,
     levels: STANDARD_LEVELS(JUNE_2026_BALL),

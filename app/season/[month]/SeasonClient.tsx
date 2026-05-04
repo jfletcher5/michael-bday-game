@@ -10,6 +10,7 @@ import {
   getTimeRemainingForConfig,
   formatReward,
   rewardEmoji,
+  getSeasonBallById,
   SeasonConfig,
   SeasonReward,
 } from '../../lib/seasons';
@@ -249,7 +250,29 @@ export default function SeasonClient() {
         {/* Reward icon + label for unclaimed */}
         {state !== 'claimed' && (
           <>
-            <span className="text-lg">{rewardEmoji(reward)}</span>
+            {(() => {
+              const ball = reward.type === 'ball' && reward.ballId ? getSeasonBallById(reward.ballId) : null;
+              if (ball?.imageUrl) {
+                return (
+                  <span
+                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center"
+                    style={{
+                      backgroundColor: ball.color,
+                      border: `2px solid ${ball.strokeColor}`,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={ball.imageUrl}
+                      alt={ball.name}
+                      className="w-4 h-4 sm:w-5 sm:h-5"
+                      style={ball.imageFilter ? { filter: ball.imageFilter } : undefined}
+                    />
+                  </span>
+                );
+              }
+              return <span className="text-lg">{rewardEmoji(reward)}</span>;
+            })()}
             <span className="text-[10px] font-medium text-gray-600 mt-0.5 text-center leading-tight">
               {formatReward(reward)}
             </span>
@@ -383,25 +406,40 @@ export default function SeasonClient() {
               )}
             </div>
 
-            {/* Achievement grid */}
+            {/* Achievement strip — scrolls horizontally so 25 tiers fit on any width */}
             <div className="flex-1 min-w-0">
-              {/* Threshold labels */}
-              <div className="grid grid-cols-5 gap-1 sm:gap-2 mb-1">
-                {config.levels.map((level, i) => (
-                  <div key={i} className="text-center text-[9px] sm:text-[10px] font-bold text-gray-400">
-                    {formatPrice(level.meterThreshold)}m
+              <div className="overflow-x-auto -mx-1 px-1 pb-2">
+                <div className="inline-block min-w-full">
+                  {/* Threshold labels */}
+                  <div className="flex gap-1 sm:gap-2 mb-1">
+                    {config.levels.map((level, i) => (
+                      <div
+                        key={i}
+                        className="w-12 sm:w-14 flex-shrink-0 text-center text-[9px] sm:text-[10px] font-bold text-gray-400"
+                      >
+                        {formatPrice(level.meterThreshold)}m
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Top row (premium) */}
-              <div className="grid grid-cols-5 gap-1 sm:gap-2 mb-1 sm:mb-2">
-                {config.levels.map((_, i) => renderCell('premium', i))}
-              </div>
+                  {/* Top row (premium) */}
+                  <div className="flex gap-1 sm:gap-2 mb-1 sm:mb-2">
+                    {config.levels.map((_, i) => (
+                      <div key={`p-${i}`} className="w-12 sm:w-14 flex-shrink-0">
+                        {renderCell('premium', i)}
+                      </div>
+                    ))}
+                  </div>
 
-              {/* Bottom row (free) */}
-              <div className="grid grid-cols-5 gap-1 sm:gap-2">
-                {config.levels.map((_, i) => renderCell('free', i))}
+                  {/* Bottom row (free) */}
+                  <div className="flex gap-1 sm:gap-2">
+                    {config.levels.map((_, i) => (
+                      <div key={`f-${i}`} className="w-12 sm:w-14 flex-shrink-0">
+                        {renderCell('free', i)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
