@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getCurrentSeasonConfig } from "./lib/seasons";
+import GlobalNotifications from "./components/GlobalNotifications";
+import PollModal from "./components/PollModal";
+import EventOverlay from "./components/EventOverlay";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,6 +38,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <GlobalNotifications />
+        <PollModal />
+        <EventOverlay />
       </body>
     </html>
   );

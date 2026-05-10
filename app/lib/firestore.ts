@@ -1,11 +1,12 @@
 // Firestore service functions for leaderboard and user management
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
+import {
+  collection,
+  addDoc,
+  getDocs,
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   doc,
   query,
   orderBy,
@@ -15,11 +16,15 @@ import {
   QueryDocumentSnapshot,
   DocumentData,
   arrayUnion,
-  where
+  where,
+  onSnapshot,
+  serverTimestamp,
+  increment,
+  type Unsubscribe
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, LoginCredentials } from './types';
+import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 
@@ -707,5 +712,195 @@ export async function useExtraBall(username: string): Promise<User> {
     ...userData,
     extraBalls: current - 1,
   };
+}
+
+// ============================================
+// ADMIN PANEL: PLAYERS, EVENTS, POLLS, MESSAGES
+// ============================================
+
+const EVENTS_COLLECTION = 'events';
+const POLLS_COLLECTION = 'polls';
+const MESSAGES_COLLECTION = 'messages';
+
+/**
+ * List every user document. Used by the admin Players tab.
+ */
+export async function getAllUsers(): Promise<User[]> {
+  const snap = await getDocs(collection(db, USERS_COLLECTION));
+  return snap.docs.map((d) => d.data() as User);
+}
+
+// ----- Events -----
+
+export async function createGameEvent(
+  type: GameEventType,
+  startAtMs: number,
+  durationSec: number,
+  createdBy: string,
+): Promise<void> {
+  await addDoc(collection(db, EVENTS_COLLECTION), {
+    type,
+    startAtMs,
+    durationSec,
+    createdBy,
+    createdAtMs: Date.now(),
+    createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Stop / cancel a game event. Removes the doc so listeners drop it
+ * immediately — works for both upcoming and currently-active events.
+ */
+export async function deleteGameEvent(eventId: string): Promise<void> {
+  await deleteDoc(doc(db, EVENTS_COLLECTION, eventId));
+}
+
+/**
+ * Subscribe to events that haven't fully expired yet (started + duration > now).
+ * Caller is responsible for filtering scheduled-vs-active by clock.
+ */
+export function subscribeToActiveEvents(
+  onChange: (events: GameEvent[]) => void,
+): Unsubscribe {
+  // No where clause to avoid composite-index requirements; filter client-side.
+  const q = query(collection(db, EVENTS_COLLECTION), orderBy('startAtMs', 'desc'), limit(20));
+  return onSnapshot(q, (snap) => {
+    const now = Date.now();
+    const events: GameEvent[] = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<GameEvent, 'id'>) }))
+      .filter((e) => e.startAtMs + e.durationSec * 1000 > now);
+    onChange(events);
+  });
+}
+
+// ----- Messages -----
+
+export async function createBroadcastMessage(
+  text: string,
+  createdBy: string,
+  ttlMs: number = 24 * 60 * 60 * 1000,
+): Promise<void> {
+  const now = Date.now();
+  await addDoc(collection(db, MESSAGES_COLLECTION), {
+    text,
+    createdBy,
+    createdAtMs: now,
+    expiresAtMs: now + ttlMs,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Subscribe to recent broadcast messages that haven't expired yet.
+ * Filtering is client-side so we don't need a composite index.
+ */
+export function subscribeToActiveMessages(
+  onChange: (messages: BroadcastMessage[]) => void,
+): Unsubscribe {
+  const q = query(collection(db, MESSAGES_COLLECTION), orderBy('createdAtMs', 'desc'), limit(20));
+  return onSnapshot(q, (snap) => {
+    const now = Date.now();
+    const msgs: BroadcastMessage[] = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<BroadcastMessage, 'id'>) }))
+      .filter((m) => m.expiresAtMs > now);
+    onChange(msgs);
+  });
+}
+
+/**
+ * Mark a message as seen for a user — appends id to seenMessageIds.
+ */
+export async function markMessageSeen(username: string, messageId: string): Promise<void> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  await updateDoc(userRef, { seenMessageIds: arrayUnion(messageId) });
+}
+
+// ----- Polls -----
+
+export async function createPoll(
+  question: string,
+  options: string[],
+  createdBy: string,
+): Promise<void> {
+  // Deactivate prior polls so only one is live at a time.
+  const existing = await getDocs(query(collection(db, POLLS_COLLECTION), where('active', '==', true)));
+  await Promise.all(existing.docs.map((d) => updateDoc(d.ref, { active: false })));
+
+  await addDoc(collection(db, POLLS_COLLECTION), {
+    question,
+    options,
+    counts: Object.fromEntries(options.map((_, i) => [String(i), 0])),
+    createdBy,
+    createdAtMs: Date.now(),
+    createdAt: serverTimestamp(),
+    active: true,
+  });
+}
+
+/**
+ * Subscribe to the currently active poll, if any.
+ */
+export function subscribeToActivePoll(
+  onChange: (poll: Poll | null) => void,
+): Unsubscribe {
+  const q = query(collection(db, POLLS_COLLECTION), where('active', '==', true), limit(1));
+  return onSnapshot(q, (snap) => {
+    if (snap.empty) {
+      onChange(null);
+      return;
+    }
+    const d = snap.docs[0];
+    onChange({ id: d.id, ...(d.data() as Omit<Poll, 'id'>) });
+  });
+}
+
+/**
+ * Has the given user already voted in the given poll?
+ */
+export async function hasUserAnsweredPoll(pollId: string, username: string): Promise<boolean> {
+  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const snap = await getDoc(ref);
+  return snap.exists();
+}
+
+/**
+ * Return the option index this user voted for, or null if they haven't voted.
+ */
+export async function getUserPollAnswer(pollId: string, username: string): Promise<number | null> {
+  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  const data = snap.data() as { optionIndex?: number };
+  return typeof data.optionIndex === 'number' ? data.optionIndex : null;
+}
+
+/**
+ * Submit a poll answer. Atomically writes the user's answer doc and
+ * increments the corresponding option counter on the poll.
+ */
+export async function submitPollAnswer(
+  pollId: string,
+  username: string,
+  optionIndex: number,
+): Promise<void> {
+  const answerRef = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const existing = await getDoc(answerRef);
+  if (existing.exists()) throw new Error('Already answered');
+
+  await setDoc(answerRef, {
+    optionIndex,
+    answeredAtMs: Date.now(),
+  });
+  await updateDoc(doc(db, POLLS_COLLECTION, pollId), {
+    [`counts.${optionIndex}`]: increment(1),
+  });
+}
+
+/**
+ * End the currently active poll (admin "Close" action).
+ */
+export async function closePoll(pollId: string): Promise<void> {
+  await updateDoc(doc(db, POLLS_COLLECTION, pollId), { active: false });
 }
 

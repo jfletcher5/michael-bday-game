@@ -31,6 +31,7 @@ export default function TopNav({
 
   const handleShop = () => router.push('/shop');
   const handleSeason = () => router.push(`/season/${getCurrentSeasonId()}`);
+  const handleAdmin = () => router.push('/admin');
   const seasonConfig = getCurrentSeasonConfig();
 
   const bgClass = transparent
@@ -59,6 +60,15 @@ export default function TopNav({
             >
               <span className="text-lg">🛒</span>
               <span className="hidden sm:inline text-sm">Shop</span>
+            </button>
+          )}
+          {user?.isAdmin && (
+            <button
+              onClick={handleAdmin}
+              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+            >
+              <span className="text-lg">🛠️</span>
+              <span className="hidden sm:inline text-sm">Admin</span>
             </button>
           )}
         </div>

@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import Matter from 'matter-js';
 import { BOSS_ENCOUNTERS } from '@/app/lib/bosses';
+import { subscribeToActiveEvents } from '@/app/lib/firestore';
+import YouTubeBackground from '@/app/components/YouTubeBackground';
 import {
   Controls,
   Platform,
@@ -11,7 +13,20 @@ import {
   BossHudState,
   BossArenaSegment,
   BreakableWall,
+  GameEvent,
 } from '@/app/lib/types';
+
+interface EventParticle {
+  emoji: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rotation: number;
+  rotSpeed: number;
+  size: number;
+  expiresAtMs: number;
+}
 
 interface GameCanvasProps {
   controls: Controls;
@@ -123,6 +138,15 @@ export default function GameCanvas({
   // Ball image state for themed avatars.
   const ballImageRef = useRef<HTMLImageElement | null>(null);
   const ballImageLoadedRef = useRef(false);
+  // Event particles (taco rain, meteor shower) — purely cosmetic, no physics.
+  const activeEventsRef = useRef<GameEvent[]>([]);
+  const eventParticlesRef = useRef<EventParticle[]>([]);
+  const lastMeteorSpawnAtRef = useRef(0);
+  // Taco-rain swaps the gameplay sky for a YouTube video background instead
+  // of raining emojis. Tracked in both a ref (for the render loop to skip
+  // its sky fill) and React state (so the iframe can render behind the canvas).
+  const tacoRainActiveRef = useRef(false);
+  const [tacoRainActive, setTacoRainActive] = useState(false);
 
   // Callback refs to avoid game-loop recreation when props change.
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
@@ -907,8 +931,13 @@ export default function GameCanvas({
     }
 
     // Render: sky background.
-    ctx.fillStyle = '#87CEEB';
-    ctx.fillRect(0, 0, width, height);
+    if (tacoRainActiveRef.current) {
+      // Skip the sky fill so the looping YouTube background shows through.
+      ctx.clearRect(0, 0, width, height);
+    } else {
+      ctx.fillStyle = '#87CEEB';
+      ctx.fillRect(0, 0, width, height);
+    }
 
     // Render all platforms, including boss arena segments.
     platformsRef.current.forEach(platform => {
@@ -1030,6 +1059,59 @@ export default function GameCanvas({
     ctx.closePath();
     ctx.stroke();
 
+    // ----- Event particles (taco rain / meteor shower) -----
+    {
+      const nowMs = Date.now();
+      const evts = activeEventsRef.current;
+      // Spawn particles for each event currently active. Taco-rain is
+      // rendered as a YouTube background (no canvas particles).
+      for (const evt of evts) {
+        if (nowMs < evt.startAtMs || nowMs >= evt.startAtMs + evt.durationSec * 1000) continue;
+        if (evt.type === 'meteor-shower') {
+          if (nowMs - lastMeteorSpawnAtRef.current >= 180) {
+            lastMeteorSpawnAtRef.current = nowMs;
+            const size = 20 + Math.random() * 16;
+            const fromLeft = Math.random() < 0.5;
+            eventParticlesRef.current.push({
+              emoji: '☄️',
+              x: fromLeft ? -size : width + size,
+              y: Math.random() * height * 0.6,
+              vx: (fromLeft ? 1 : -1) * (260 + Math.random() * 120),
+              vy: 160 + Math.random() * 80,
+              rotation: fromLeft ? Math.PI * 0.25 : Math.PI * 0.75,
+              rotSpeed: 0,
+              size,
+              expiresAtMs: nowMs + 4000,
+            });
+          }
+        }
+      }
+
+      // Update + draw particles, dropping any that left the screen or expired.
+      const dt = 1 / 60;
+      const next: EventParticle[] = [];
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const p of eventParticlesRef.current) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.rotation += p.rotSpeed * dt;
+        if (p.y - p.size > height || p.x + p.size < -50 || p.x - p.size > width + 50 || nowMs > p.expiresAtMs) {
+          continue;
+        }
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation);
+        ctx.font = `${p.size}px serif`;
+        ctx.fillText(p.emoji, 0, 0);
+        ctx.restore();
+        next.push(p);
+      }
+      ctx.restore();
+      eventParticlesRef.current = next;
+    }
+
     // Optional fight banner for readability while boss HUD is visible.
     if (challenge300Ref.current.platformCreated && !challenge300Ref.current.wallBroken) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
@@ -1095,6 +1177,38 @@ export default function GameCanvas({
     gameLoopRef.current = gameLoop;
   }, [gameLoop]);
 
+  // Subscribe to admin-scheduled events so particles render during gameplay.
+  useEffect(() => {
+    const unsub = subscribeToActiveEvents((evts) => {
+      activeEventsRef.current = evts;
+
+      // Detect whether a taco-rain event is currently in its active window.
+      const now = Date.now();
+      const tacoActive = evts.some(
+        (e) => e.type === 'taco-rain' && now >= e.startAtMs && now < e.startAtMs + e.durationSec * 1000,
+      );
+      tacoRainActiveRef.current = tacoActive;
+      setTacoRainActive(tacoActive);
+    });
+    return () => unsub();
+  }, []);
+
+  // Tick the active-window check so taco-rain expires on time even if no
+  // Firestore event fires during its 5-minute lifetime.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = Date.now();
+      const tacoActive = activeEventsRef.current.some(
+        (e) => e.type === 'taco-rain' && now >= e.startAtMs && now < e.startAtMs + e.durationSec * 1000,
+      );
+      if (tacoActive !== tacoRainActiveRef.current) {
+        tacoRainActiveRef.current = tacoActive;
+        setTacoRainActive(tacoActive);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   useEffect(() => {
     handleResize();
     initializeGame();
@@ -1130,11 +1244,14 @@ export default function GameCanvas({
   }, [isPlaying, gameLoop, scheduleNextFrame, initializeGame, reviveSignalRef]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="w-full h-full"
-      style={{ display: 'block' }}
-    />
+    <div className="relative w-full h-full">
+      {tacoRainActive && <YouTubeBackground videoId="npjF032TDDQ" />}
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full relative"
+        style={{ display: 'block', backgroundColor: tacoRainActive ? 'transparent' : undefined, zIndex: 1 }}
+      />
+    </div>
   );
 }
 

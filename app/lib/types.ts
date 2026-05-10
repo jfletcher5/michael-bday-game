@@ -34,6 +34,55 @@ export interface User {
   extraBalls: number;    // Count of extra-ball revival items
   seasonData: SeasonData | null; // Current season progress (null if never interacted)
   verified?: boolean;    // True for users granted a verified badge in the leaderboard
+  isAdmin?: boolean;     // True for users allowed to access the /admin panel
+  seenMessageIds?: string[]; // Global broadcast messages this user has dismissed
+}
+
+/**
+ * Supported game-event types triggered by admins.
+ * Both are visual-only effects rendered over gameplay.
+ */
+export type GameEventType = 'taco-rain' | 'meteor-shower';
+
+/**
+ * A scheduled global game event broadcast to every logged-in player.
+ */
+export interface GameEvent {
+  id: string;
+  type: GameEventType;
+  startAtMs: number;       // unix epoch ms when the effect begins
+  durationSec: number;     // length of the active effect
+  createdBy: string;       // admin username
+  createdAtMs: number;
+}
+
+/**
+ * A global broadcast message shown as a top toast, once per user.
+ */
+export interface BroadcastMessage {
+  id: string;
+  text: string;
+  createdBy: string;
+  createdAtMs: number;
+  expiresAtMs: number;     // toasts older than this are not shown anymore
+}
+
+/**
+ * A global poll shown to every user the next time they're online.
+ */
+export interface Poll {
+  id: string;
+  question: string;
+  options: string[];
+  /**
+   * Vote tally keyed by option index (as string). Stored as a map rather
+   * than an array so Firestore's `update({ "counts.0": increment(1) })`
+   * pattern can target a single field without rewriting the whole tally.
+   */
+  counts: Record<string, number>;
+  createdBy: string;
+  createdAtMs: number;
+  active: boolean;
 }
 
 /**

@@ -41,6 +41,31 @@ service cloud.firestore {
       // Don't allow deletes
       allow delete: if false;
     }
+
+    // Admin-broadcasted game events (taco rain, meteor shower, etc).
+    // Reads are public so every player can subscribe; writes are gated by
+    // the admin UI today (Cloud Function hardening is a future task).
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Admin-broadcasted messages shown as a one-time top toast.
+    match /messages/{messageId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Global polls + per-user answer subdocs.
+    match /polls/{pollId} {
+      allow read: if true;
+      allow write: if true;
+
+      match /answers/{username} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
   }
 }
 
