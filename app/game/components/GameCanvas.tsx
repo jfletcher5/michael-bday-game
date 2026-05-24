@@ -26,6 +26,64 @@ interface EventParticle {
   rotSpeed: number;
   size: number;
   expiresAtMs: number;
+  /** Crab Rave crabs bob in place instead of falling. */
+  kind?: 'crab';
+  phase?: number;
+  baseY?: number;
+}
+
+// Official Crab Rave YouTube ID — audio-only during the admin event.
+const CRAB_RAVE_VIDEO_ID = 'LDU_Txk06tM';
+// Skip the intro and start at the drop.
+const CRAB_RAVE_START_SEC = 25;
+
+/** True when an event type is inside its scheduled active window. */
+function isEventTypeLive(events: GameEvent[], type: GameEvent['type'], nowMs: number): boolean {
+  return events.some(
+    (e) => e.type === type && nowMs >= e.startAtMs && nowMs < e.startAtMs + e.durationSec * 1000,
+  );
+}
+
+/** Sweeping club lasers drawn over the gameplay canvas during Crab Rave. */
+function drawCrabRaveLasers(ctx: CanvasRenderingContext2D, width: number, height: number, nowMs: number) {
+  const beamCount = 5;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < beamCount; i++) {
+    const hue = (nowMs / 40 + i * 60) % 360;
+    const angle = Math.sin(nowMs / 800 + i * 1.2) * 0.8 + (i - beamCount / 2) * 0.25;
+    const originX = i % 2 === 0 ? 0 : width;
+    const originY = height * 0.15;
+    const len = Math.hypot(width, height) * 1.1;
+    const endX = originX + Math.cos(angle + (i % 2 === 0 ? 0.3 : Math.PI - 0.3)) * len;
+    const endY = originY + Math.sin(angle + (i % 2 === 0 ? 0.3 : Math.PI - 0.3)) * len;
+
+    const grad = ctx.createLinearGradient(originX, originY, endX, endY);
+    grad.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.75)`);
+    grad.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 18 + Math.sin(nowMs / 300 + i) * 6;
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Pulsing speaker emojis anchored to the bottom corners during Crab Rave. */
+function drawCrabRaveSpeakers(ctx: CanvasRenderingContext2D, width: number, height: number, nowMs: number) {
+  const pulse = 1 + Math.sin(nowMs / 180) * 0.15;
+  const size = 48 * pulse;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${size}px serif`;
+  ctx.globalAlpha = 0.9;
+  ctx.fillText('🔊', 52, height - 52);
+  ctx.fillText('🔊', width - 52, height - 52);
+  ctx.restore();
 }
 
 interface GameCanvasProps {
@@ -142,11 +200,15 @@ export default function GameCanvas({
   const activeEventsRef = useRef<GameEvent[]>([]);
   const eventParticlesRef = useRef<EventParticle[]>([]);
   const lastMeteorSpawnAtRef = useRef(0);
+  const lastCrabSpawnAtRef = useRef(0);
   // Taco-rain swaps the gameplay sky for a YouTube video background instead
   // of raining emojis. Tracked in both a ref (for the render loop to skip
   // its sky fill) and React state (so the iframe can render behind the canvas).
   const tacoRainActiveRef = useRef(false);
   const [tacoRainActive, setTacoRainActive] = useState(false);
+  // Crab Rave plays hidden YouTube audio plus canvas lasers/speakers/crabs.
+  const crabRaveActiveRef = useRef(false);
+  const [crabRaveActive, setCrabRaveActive] = useState(false);
 
   // Callback refs to avoid game-loop recreation when props change.
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
@@ -934,6 +996,13 @@ export default function GameCanvas({
     if (tacoRainActiveRef.current) {
       // Skip the sky fill so the looping YouTube background shows through.
       ctx.clearRect(0, 0, width, height);
+    } else if (crabRaveActiveRef.current) {
+      // Dark party gradient while Crab Rave audio + canvas effects play.
+      const grad = ctx.createLinearGradient(0, 0, width, height);
+      grad.addColorStop(0, '#1a0533');
+      grad.addColorStop(1, '#0d0033');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
     } else {
       ctx.fillStyle = '#87CEEB';
       ctx.fillRect(0, 0, width, height);
@@ -1059,10 +1128,11 @@ export default function GameCanvas({
     ctx.closePath();
     ctx.stroke();
 
-    // ----- Event particles (taco rain / meteor shower) -----
+    // ----- Event particles (taco rain / meteor shower / crab rave) -----
     {
       const nowMs = Date.now();
       const evts = activeEventsRef.current;
+      const crabRaveLive = isEventTypeLive(evts, 'crab-rave', nowMs);
       // Spawn particles for each event currently active. Taco-rain is
       // rendered as a YouTube background (no canvas particles).
       for (const evt of evts) {
@@ -1085,6 +1155,32 @@ export default function GameCanvas({
             });
           }
         }
+        if (evt.type === 'crab-rave') {
+          if (nowMs - lastCrabSpawnAtRef.current >= 350) {
+            lastCrabSpawnAtRef.current = nowMs;
+            const spawnY = Math.random() * height * 0.75 + height * 0.08;
+            eventParticlesRef.current.push({
+              emoji: '🦀',
+              kind: 'crab',
+              x: Math.random() * width,
+              y: spawnY,
+              baseY: spawnY,
+              phase: Math.random() * Math.PI * 2,
+              vx: (Math.random() - 0.5) * 50,
+              vy: 0,
+              rotation: 0,
+              rotSpeed: (Math.random() - 0.5) * 5,
+              size: 28 + Math.random() * 14,
+              expiresAtMs: nowMs + 8000,
+            });
+          }
+        }
+      }
+
+      // Crab Rave lasers + speakers sit behind moving crab emojis.
+      if (crabRaveLive) {
+        drawCrabRaveLasers(ctx, width, height, nowMs);
+        drawCrabRaveSpeakers(ctx, width, height, nowMs);
       }
 
       // Update + draw particles, dropping any that left the screen or expired.
@@ -1094,10 +1190,23 @@ export default function GameCanvas({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       for (const p of eventParticlesRef.current) {
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.rotation += p.rotSpeed * dt;
-        if (p.y - p.size > height || p.x + p.size < -50 || p.x - p.size > width + 50 || nowMs > p.expiresAtMs) {
+        if (p.kind === 'crab') {
+          p.phase = (p.phase ?? 0) + dt * 6;
+          p.x += p.vx * dt;
+          p.y = (p.baseY ?? p.y) + Math.sin(p.phase) * 14;
+          p.rotation += p.rotSpeed * dt;
+        } else {
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.rotation += p.rotSpeed * dt;
+        }
+        if (p.kind !== 'crab' && (p.y - p.size > height || p.x + p.size < -50 || p.x - p.size > width + 50)) {
+          continue;
+        }
+        if (p.kind === 'crab' && (p.x + p.size < -50 || p.x - p.size > width + 50)) {
+          continue;
+        }
+        if (nowMs > p.expiresAtMs) {
           continue;
         }
         ctx.save();
@@ -1182,28 +1291,34 @@ export default function GameCanvas({
     const unsub = subscribeToActiveEvents((evts) => {
       activeEventsRef.current = evts;
 
-      // Detect whether a taco-rain event is currently in its active window.
       const now = Date.now();
-      const tacoActive = evts.some(
-        (e) => e.type === 'taco-rain' && now >= e.startAtMs && now < e.startAtMs + e.durationSec * 1000,
-      );
+      // Detect whether a taco-rain event is currently in its active window.
+      const tacoActive = isEventTypeLive(evts, 'taco-rain', now);
       tacoRainActiveRef.current = tacoActive;
       setTacoRainActive(tacoActive);
+
+      const crabActive = isEventTypeLive(evts, 'crab-rave', now);
+      crabRaveActiveRef.current = crabActive;
+      setCrabRaveActive(crabActive);
     });
     return () => unsub();
   }, []);
 
-  // Tick the active-window check so taco-rain expires on time even if no
-  // Firestore event fires during its 5-minute lifetime.
+  // Tick the active-window check so events expire on time even if no
+  // Firestore update fires during their lifetime.
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
-      const tacoActive = activeEventsRef.current.some(
-        (e) => e.type === 'taco-rain' && now >= e.startAtMs && now < e.startAtMs + e.durationSec * 1000,
-      );
+      const tacoActive = isEventTypeLive(activeEventsRef.current, 'taco-rain', now);
       if (tacoActive !== tacoRainActiveRef.current) {
         tacoRainActiveRef.current = tacoActive;
         setTacoRainActive(tacoActive);
+      }
+
+      const crabActive = isEventTypeLive(activeEventsRef.current, 'crab-rave', now);
+      if (crabActive !== crabRaveActiveRef.current) {
+        crabRaveActiveRef.current = crabActive;
+        setCrabRaveActive(crabActive);
       }
     }, 1000);
     return () => clearInterval(id);
@@ -1246,6 +1361,9 @@ export default function GameCanvas({
   return (
     <div className="relative w-full h-full">
       {tacoRainActive && <YouTubeBackground videoId="npjF032TDDQ" />}
+      {crabRaveActive && (
+        <YouTubeBackground videoId={CRAB_RAVE_VIDEO_ID} audioOnly startAtSec={CRAB_RAVE_START_SEC} />
+      )}
       <canvas
         ref={canvasRef}
         className="w-full h-full relative"

@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Cloud Storage rules for michaels-web-game.
+// The web app does not use the Storage SDK today (assets live in /public or on CDNs),
+// but these rules lock down the bucket if/when admin seed scripts upload game assets.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Public game assets (ball skins, stickers, etc.) — clients may read only.
+    // Upload via Firebase Console or Admin SDK scripts, not from the browser.
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // User-specific uploads (future) — still blocked until Firebase Auth is added.
+    match /users/{username}/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Deny all other paths by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

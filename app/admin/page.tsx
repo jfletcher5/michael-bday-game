@@ -25,9 +25,24 @@ type Tab = 'events' | 'players' | 'polls' | 'messages';
 const EVENT_TYPES: { id: GameEventType; label: string; emoji: string; description: string }[] = [
   { id: 'taco-rain', label: 'Taco Rain', emoji: '🌮', description: 'Tacos rain from the top of the screen.' },
   { id: 'meteor-shower', label: 'Meteor Shower', emoji: '☄️', description: 'Meteors streak across the screen.' },
+  { id: 'crab-rave', label: 'Crab Rave', emoji: '🦀', description: 'Crab Rave audio with dancing crabs, lasers, and speakers.' },
 ];
 
 const EVENT_DURATION_SEC = 5 * 60;
+
+/** Format a Date for `<input type="datetime-local" />` in the user's timezone. */
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Default scheduled time: five minutes from now, seconds cleared. */
+function defaultScheduledAt(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + 5);
+  d.setSeconds(0, 0);
+  return toDatetimeLocalValue(d);
+}
 
 export default function AdminPage() {
   const router = useRouter();
@@ -123,8 +138,7 @@ export default function AdminPage() {
 function EventsTab({ admin }: { admin: User }) {
   const [type, setType] = useState<GameEventType>('taco-rain');
   const [startNow, setStartNow] = useState(true);
-  const [delayMin, setDelayMin] = useState(1);
-  const [delaySec, setDelaySec] = useState(0);
+  const [scheduledAt, setScheduledAt] = useState(defaultScheduledAt);
   const [submitting, setSubmitting] = useState(false);
   const [active, setActive] = useState<GameEvent[]>([]);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -138,7 +152,15 @@ function EventsTab({ admin }: { admin: User }) {
     setSubmitting(true);
     setFeedback(null);
     try {
-      const startAtMs = startNow ? Date.now() : Date.now() + (delayMin * 60 + delaySec) * 1000;
+      const startAtMs = startNow ? Date.now() : new Date(scheduledAt).getTime();
+      if (!startNow && Number.isNaN(startAtMs)) {
+        setFeedback('Pick a valid date and time');
+        return;
+      }
+      if (!startNow && startAtMs <= Date.now()) {
+        setFeedback('Scheduled time must be in the future');
+        return;
+      }
       await createGameEvent(type, startAtMs, EVENT_DURATION_SEC, admin.username);
       setFeedback('Event scheduled!');
     } catch (err) {
@@ -180,32 +202,25 @@ function EventsTab({ admin }: { admin: User }) {
               <input
                 type="checkbox"
                 checked={startNow}
-                onChange={(e) => setStartNow(e.target.checked)}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setStartNow(checked);
+                  // Seed the picker when switching to a future schedule.
+                  if (!checked) setScheduledAt(defaultScheduledAt());
+                }}
                 className="w-4 h-4"
               />
               Start now
             </label>
             {!startNow && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600">In</span>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Start date &amp; time</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={delayMin}
-                  onChange={(e) => setDelayMin(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                  className="w-16 border border-gray-300 rounded px-2 py-1 text-sm"
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
-                <span className="text-xs text-gray-600">min</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={delaySec}
-                  onChange={(e) => setDelaySec(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                  className="w-16 border border-gray-300 rounded px-2 py-1 text-sm"
-                />
-                <span className="text-xs text-gray-600">sec</span>
               </div>
             )}
           </div>
@@ -254,7 +269,7 @@ function EventsTab({ admin }: { admin: User }) {
                     <div className="text-[11px] text-gray-600">
                       {isActive
                         ? `Active — ${Math.max(0, Math.ceil((e.startAtMs + e.durationSec * 1000 - now) / 1000))}s left`
-                        : `Starts in ${Math.max(0, Math.ceil((e.startAtMs - now) / 1000))}s`}
+                        : `Starts ${new Date(e.startAtMs).toLocaleString()}`}
                     </div>
                   </div>
                   <button

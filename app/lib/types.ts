@@ -42,7 +42,7 @@ export interface User {
  * Supported game-event types triggered by admins.
  * Both are visual-only effects rendered over gameplay.
  */
-export type GameEventType = 'taco-rain' | 'meteor-shower';
+export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave';
 
 /**
  * A scheduled global game event broadcast to every logged-in player.
