@@ -5,6 +5,7 @@ import { getCurrentSeasonConfig } from "./lib/seasons";
 import GlobalNotifications from "./components/GlobalNotifications";
 import PollModal from "./components/PollModal";
 import EventOverlay from "./components/EventOverlay";
+import ClientProviders from "./components/ClientProviders";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,10 +38,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
-        <GlobalNotifications />
-        <PollModal />
-        <EventOverlay />
+        <ClientProviders>
+          {children}
+          <GlobalNotifications />
+          <PollModal />
+          <EventOverlay />
+        </ClientProviders>
       </body>
     </html>
   );

@@ -20,6 +20,15 @@ export interface PlayerIdentity {
 }
 
 /**
+ * Player-customizable zoom and menu gradient colors (MIE-4 Settings).
+ */
+export interface PlayerSettings {
+  zoom: number; // In-game camera scale, 0.75–1.25 (1.0 = normal)
+  gradientColors: [string, string, string]; // Menu background gradient hex colors
+  settingsCode?: string; // Last generated PD-XXXXXX share code (display only)
+}
+
+/**
  * User account stored in Firestore
  */
 export interface User {
@@ -36,6 +45,7 @@ export interface User {
   verified?: boolean;    // True for users granted a verified badge in the leaderboard
   isAdmin?: boolean;     // True for users allowed to access the /admin panel
   seenMessageIds?: string[]; // Global broadcast messages this user has dismissed
+  playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
 }
 
 /**

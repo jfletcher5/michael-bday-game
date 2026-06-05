@@ -15,6 +15,7 @@ import {
   SeasonReward,
 } from '../../lib/seasons';
 import { formatPrice } from '../../lib/ballTypes';
+import MenuBackground from '../../components/MenuBackground';
 
 export default function SeasonClient() {
   const router = useRouter();
@@ -86,7 +87,7 @@ export default function SeasonClient() {
 
   if (!config) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
+      <MenuBackground className="min-h-screen flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-4">No Active Season</h1>
           <p className="text-gray-600 mb-6">There is no season configured for this month.</p>
@@ -94,7 +95,7 @@ export default function SeasonClient() {
             Back to Menu
           </button>
         </div>
-      </div>
+      </MenuBackground>
     );
   }
 
@@ -107,7 +108,7 @@ export default function SeasonClient() {
     const daysUntil = Math.max(0, Math.ceil(msUntil / (1000 * 60 * 60 * 24)));
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
+      <MenuBackground className="min-h-screen flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full text-center">
           <div className="text-6xl mb-3">🔒</div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
@@ -150,7 +151,7 @@ export default function SeasonClient() {
             Back to Menu
           </button>
         </div>
-      </div>
+      </MenuBackground>
     );
   }
 
@@ -291,7 +292,7 @@ export default function SeasonClient() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-2 sm:p-4">
+    <MenuBackground className="min-h-screen p-2 sm:p-4">
       {/* Top bar */}
       <div className="max-w-4xl mx-auto mb-3 sm:mb-4">
         <div className="flex items-center justify-between gap-2">
@@ -446,6 +447,6 @@ export default function SeasonClient() {
           </div>
         </div>
       </div>
-    </div>
+    </MenuBackground>
   );
 }

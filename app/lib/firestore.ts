@@ -24,7 +24,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll } from './types';
+import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 
@@ -329,6 +329,24 @@ export async function updateUserAvatar(username: string, avatarId: number): Prom
 
   const userData = userDoc.data() as User;
   return { ...userData, avatarId };
+}
+
+/**
+ * Persist a user's zoom + menu gradient settings to Firestore.
+ * Used by the Settings page so preferences sync across devices.
+ */
+export async function updateUserPlayerSettings(
+  username: string,
+  settings: PlayerSettings
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  await updateDoc(userRef, { playerSettings: settings });
+
+  const userData = userDoc.data() as User;
+  return { ...userData, playerSettings: settings };
 }
 
 /**

@@ -6,6 +6,15 @@ import { User } from './types';
 // LocalStorage key for current user session
 const CURRENT_USER_KEY = 'platform_drop_current_user';
 
+/** Custom event name fired when login/logout updates the cached user. */
+export const USER_CHANGED_EVENT = 'platform-drop-user-changed';
+
+/** Notify client providers (e.g. PlayerSettingsProvider) that auth state changed. */
+function notifyUserChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(USER_CHANGED_EVENT));
+}
+
 /**
  * Get the currently logged in user from localStorage
  * @returns The User object or null if not logged in
@@ -35,6 +44,7 @@ export function getCurrentUser(): User | null {
 export function setCurrentUser(user: User): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+  notifyUserChanged();
 }
 
 /**
@@ -43,6 +53,7 @@ export function setCurrentUser(user: User): void {
 export function logout(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(CURRENT_USER_KEY);
+  notifyUserChanged();
 }
 
 /**

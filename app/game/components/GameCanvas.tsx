@@ -100,6 +100,7 @@ interface GameCanvasProps {
   ballStrokeColor?: string; // Optional custom ball stroke color
   ballImageUrl?: string;    // Optional image URL for themed balls
   ballImageFilter?: string; // Optional CSS filter to apply to ball image
+  zoom?: number;            // In-game visual zoom (0.75–1.25); physics coords stay unchanged
 }
 
 interface ActiveBossEncounter {
@@ -161,6 +162,7 @@ export default function GameCanvas({
   ballStrokeColor = '#cc0000',
   ballImageUrl,
   ballImageFilter,
+  zoom = 1,
 }: GameCanvasProps) {
   // Refs for mutable runtime state that should not trigger React re-renders.
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -215,6 +217,12 @@ export default function GameCanvas({
   const onGameOverRef = useRef(onGameOver);
   const onFinishRef = useRef(onFinish);
   const onBossHudUpdateRef = useRef(onBossHudUpdate);
+  // Visual zoom only — Matter.js physics still uses raw canvas coordinates.
+  const zoomRef = useRef(zoom);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
   useEffect(() => {
     onDistanceUpdateRef.current = onDistanceUpdate;
@@ -992,6 +1000,13 @@ export default function GameCanvas({
       return;
     }
 
+    // Visual zoom around canvas center (render-only; death bounds stay in physics space).
+    const visualZoom = zoomRef.current;
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(visualZoom, visualZoom);
+    ctx.translate(-width / 2, -height / 2);
+
     // Render: sky background.
     if (tacoRainActiveRef.current) {
       // Skip the sky fill so the looping YouTube background shows through.
@@ -1240,6 +1255,8 @@ export default function GameCanvas({
       ctx.textAlign = 'center';
       ctx.fillText(`${encounterForDraw.config.name} Encounter`, width / 2, 87);
     }
+
+    ctx.restore();
 
       scheduleNextFrame();
     } catch (error) {

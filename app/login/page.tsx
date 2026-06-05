@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { createUser, loginUser } from '../lib/firestore';
 import { setCurrentUser } from '../lib/auth';
 import { AVATAR_OPTIONS, getAvatarUrl, formatInitials, validateInitials } from '../lib/avatars';
+import MenuBackground from '../components/MenuBackground';
 
 /**
  * Login/Register Page
@@ -80,7 +81,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4 py-8">
+    <MenuBackground className="min-h-screen flex flex-col items-center justify-center p-4 py-8">
       <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto">
         {/* Page Title */}
         <div className="text-center mb-4 sm:mb-6">
@@ -250,6 +251,6 @@ export default function LoginPage() {
           </div>
         </div>
       </main>
-    </div>
+    </MenuBackground>
   );
 }

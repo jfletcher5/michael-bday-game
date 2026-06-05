@@ -8,6 +8,7 @@ import { purchaseBall, selectBall, getUserData } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
+import MenuBackground from '../components/MenuBackground';
 
 /**
  * Shop Page
@@ -198,9 +199,9 @@ export default function ShopPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500">
+      <MenuBackground className="min-h-screen flex items-center justify-center">
         <div className="text-white text-xl">Loading...</div>
-      </div>
+      </MenuBackground>
     );
   }
 
@@ -209,7 +210,7 @@ export default function ShopPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
+    <MenuBackground className="min-h-screen p-4">
       {/* Header */}
       <div className="max-w-4xl mx-auto">
         {/* Top Bar */}
@@ -271,6 +272,6 @@ export default function ShopPage() {
           ))}
         </div>
       </div>
-    </div>
+    </MenuBackground>
   );
 }

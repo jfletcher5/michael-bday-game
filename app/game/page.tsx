@@ -9,6 +9,7 @@ import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
+import { usePlayerSettings } from '../components/PlayerSettingsProvider';
 
 // Stable empty platforms array prevents GameCanvas re-init loops in infinite mode.
 const EMPTY_CUSTOM_PLATFORMS: [] = [];
@@ -32,6 +33,7 @@ export default function GamePage() {
  */
 function Game() {
   const router = useRouter();
+  const { settings } = usePlayerSettings();
   
   // Game state
   const [gameState, setGameState] = useState<GameState>('playing');
@@ -361,6 +363,7 @@ function Game() {
         ballStrokeColor={ballType.strokeColor}
         ballImageUrl={ballType.imageUrl}
         ballImageFilter={ballType.imageFilter}
+        zoom={settings.zoom}
       />
 
       {/* Keyboard Controls Handler */}

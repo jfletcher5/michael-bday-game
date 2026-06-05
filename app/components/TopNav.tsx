@@ -11,6 +11,7 @@ interface TopNavProps {
   onLogout?: () => void;
   showShopButton?: boolean;
   showSeasonButton?: boolean;
+  showSettingsButton?: boolean;
   transparent?: boolean;
 }
 
@@ -19,6 +20,7 @@ export default function TopNav({
   onLogout,
   showShopButton = true,
   showSeasonButton = true,
+  showSettingsButton = true,
   transparent = false,
 }: TopNavProps) {
   const router = useRouter();
@@ -31,6 +33,7 @@ export default function TopNav({
 
   const handleShop = () => router.push('/shop');
   const handleSeason = () => router.push(`/season/${getCurrentSeasonId()}`);
+  const handleSettings = () => router.push('/settings');
   const handleAdmin = () => router.push('/admin');
   const seasonConfig = getCurrentSeasonConfig();
 
@@ -60,6 +63,15 @@ export default function TopNav({
             >
               <span className="text-lg">🛒</span>
               <span className="hidden sm:inline text-sm">Shop</span>
+            </button>
+          )}
+          {showSettingsButton && user && (
+            <button
+              onClick={handleSettings}
+              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+            >
+              <span className="text-lg">⚙️</span>
+              <span className="hidden sm:inline text-sm">Settings</span>
             </button>
           )}
           {user?.isAdmin && (

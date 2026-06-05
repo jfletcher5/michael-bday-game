@@ -10,6 +10,7 @@ import { AVATAR_OPTIONS, getAvatarUrl } from './lib/avatars';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining, formatReward } from './lib/seasons';
 import { formatPrice } from './lib/ballTypes';
 import TopNav from './components/TopNav';
+import MenuBackground from './components/MenuBackground';
 
 /**
  * Main Menu Page
@@ -90,7 +91,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center md:justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4 py-20 sm:py-24">
+    <MenuBackground className="min-h-screen flex flex-col items-center justify-center md:justify-center p-4 py-20 sm:py-24">
       {/* Top Navigation */}
       <TopNav user={currentUser} onLogout={handleLogout} transparent />
       
@@ -232,6 +233,6 @@ export default function Home() {
           </div>
         </div>
       </main>
-    </div>
+    </MenuBackground>
   );
 }
