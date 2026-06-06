@@ -11,13 +11,9 @@ This project deploys a Next.js static export to **Firebase Hosting** (`michaels-
 | Storage rules | `storage.rules` | Cloud Storage |
 | Cloud Functions | `functions/` | Cloud Functions |
 
-## Secrets: Maker's Desk (GitHub Environment)
+## Secrets (GitHub Actions)
 
-Create a GitHub Environment named **`makers-desk`**:
-
-**GitHub → Repository → Settings → Environments → New environment → `makers-desk`**
-
-Add these secrets to the environment:
+Add repository secrets at **GitHub → Repository → Settings → Secrets and variables → Actions**:
 
 ### Firebase web app config (required for build)
 
@@ -102,18 +98,18 @@ firebase functions:secrets:set FUNCTIONS_SECRET_KEY --project michaels-web-game
 
 - [ ] Firestore database created ([console](https://console.firebase.google.com/project/michaels-web-game/firestore))
 - [ ] Web app registered in Firebase project settings
-- [ ] `makers-desk` environment secrets configured in GitHub
+- [ ] GitHub repository secrets configured
 - [ ] `FUNCTIONS_SECRET_KEY` set for Cloud Functions (optional but recommended for production)
 
 ## Troubleshooting
 
 **Build fails: missing Firebase config**
 
-Ensure all `NEXT_PUBLIC_FIREBASE_*` secrets are set in Maker's Desk / `.env.local`.
+Ensure all `NEXT_PUBLIC_FIREBASE_*` secrets are set in GitHub Actions secrets or `.env.local`.
 
 **Deploy fails: authentication**
 
-Add either `FIREBASE_TOKEN` or `FIREBASE_SERVICE_ACCOUNT` to the `makers-desk` environment.
+Add either `FIREBASE_TOKEN` or `FIREBASE_SERVICE_ACCOUNT` to GitHub repository secrets.
 
 **App loads but Firestore errors**
 

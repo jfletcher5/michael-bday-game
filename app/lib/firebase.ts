@@ -4,7 +4,7 @@ import { connectFirestoreEmulator, getFirestore, Firestore } from 'firebase/fire
 import { getFunctions, Functions } from 'firebase/functions';
 
 // Client Firebase config is injected at build time via NEXT_PUBLIC_* env vars.
-// Copy .env.example to .env.local for local dev; CI/Maker's Desk injects the same keys.
+// Copy .env.example to .env.local for local dev; CI injects the same keys via GitHub secrets.
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '',
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
