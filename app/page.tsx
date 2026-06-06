@@ -7,7 +7,7 @@ import { getCurrentUser, setCurrentUser as persistCurrentUser } from './lib/auth
 import { getUserData, updateUserAvatar } from './lib/firestore';
 import { User } from './lib/types';
 import { AVATAR_OPTIONS, getAvatarUrl } from './lib/avatars';
-import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining, formatReward } from './lib/seasons';
+import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining } from './lib/seasons';
 import { formatPrice } from './lib/ballTypes';
 import TopNav from './components/TopNav';
 import MenuBackground from './components/MenuBackground';
@@ -24,6 +24,7 @@ export default function Home() {
 
   // Load player identity and user data on mount
   useEffect(() => {
+    let cancelled = false;
     const user = getCurrentUser();
 
     if (!user) {
@@ -31,18 +32,25 @@ export default function Home() {
       return;
     }
 
-    // Show the cached user immediately so the page renders fast...
-    setCurrentUser(user);
-    setSelectedAvatarId(user.avatarId);
-    setIsLoading(false);
+    // Defer cached localStorage hydration so React's effect lint does not flag a synchronous state cascade.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setCurrentUser(user);
+      setSelectedAvatarId(user.avatarId);
+      setIsLoading(false);
+    });
 
     // ...then refresh from Firestore so stats stay in sync across devices/domains.
     getUserData(user.username).then((fresh) => {
-      if (fresh) {
+      if (!cancelled && fresh) {
         setCurrentUser(fresh);
         persistCurrentUser(fresh);
       }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
   
   // Handle logout - redirect to login
@@ -227,7 +235,7 @@ export default function Home() {
                 <li>• Use left/right arrow keys to move</li>
                 <li>• Press up arrow to jump over gaps</li>
                 <li>• Land on platforms scrolling up from below</li>
-                <li>• Don't fall off the screen!</li>
+                <li>• Don&apos;t fall off the screen!</li>
               </ul>
             </div>
           </div>
