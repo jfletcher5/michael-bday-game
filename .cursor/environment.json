@@ -1,0 +1,4 @@
+{
+  "install": "npm ci && npm ci --prefix functions",
+  "start": "npm run dev"
+}

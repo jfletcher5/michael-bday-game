@@ -3,16 +3,15 @@ import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { connectFirestoreEmulator, getFirestore, Firestore } from 'firebase/firestore';
 import { getFunctions, Functions } from 'firebase/functions';
 
-// Firebase configuration object
-// TODO: Replace with your actual Firebase project configuration
-// You can find these values in your Firebase Console > Project Settings > General
+// Client Firebase config is injected at build time via NEXT_PUBLIC_* env vars.
+// Copy .env.example to .env.local for local dev; CI/Maker's Desk injects the same keys.
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "michaels-web-game",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '',
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'michaels-web-game',
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '',
 };
 
 declare global {
@@ -41,4 +40,3 @@ if (firestoreEmulatorHost && !globalThis.__PLATFORM_DROP_FIRESTORE_EMULATOR_CONN
 
 // Initialize Firebase Functions
 export const functions: Functions = getFunctions(app);
-
