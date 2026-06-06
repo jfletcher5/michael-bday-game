@@ -16,7 +16,6 @@ const firebaseConfig = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
   var __PLATFORM_DROP_FIRESTORE_EMULATOR_CONNECTED__: boolean | undefined;
 }
 
