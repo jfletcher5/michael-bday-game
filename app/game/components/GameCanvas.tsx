@@ -1390,6 +1390,7 @@ export default function GameCanvas({
     isPlaying,
     maybeAwardAuroraShardForWallBreak,
     mode,
+    reviveSignalRef,
     scheduleNextFrame,
     spawnThreeHundredChallenge,
     spawnBossArenaEncounter,
