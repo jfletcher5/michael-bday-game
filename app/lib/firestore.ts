@@ -492,7 +492,7 @@ export async function purchaseBall(
     if (userData.ownedBalls.includes(ballId)) {
       throw new Error('Ball already owned');
     }
-    
+
     // Check if user has enough coins
     if (userData.totalCoins < price) {
       throw new Error('Not enough coins');
