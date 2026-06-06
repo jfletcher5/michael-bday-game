@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Jester Clown Ball</title>
-  <desc id="desc">A smiling clown face with a red nose and a red, purple, and gold jester hat.</desc>
+  <desc id="desc">A smiling clown face with a red nose and a red, blue, and green jester hat.</desc>
   <defs>
     <radialGradient id="faceGradient" cx="42%" cy="35%" r="70%">
       <stop offset="0%" stop-color="#fff7df" />
@@ -11,9 +11,13 @@
       <stop offset="0%" stop-color="#ff4d6d" />
       <stop offset="100%" stop-color="#b00030" />
     </linearGradient>
-    <linearGradient id="purpleHat" x1="0%" x2="100%" y1="0%" y2="100%">
-      <stop offset="0%" stop-color="#9d4edd" />
-      <stop offset="100%" stop-color="#4a148c" />
+    <linearGradient id="blueHat" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#4dabf7" />
+      <stop offset="100%" stop-color="#0b4f9f" />
+    </linearGradient>
+    <linearGradient id="greenHat" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#69db7c" />
+      <stop offset="100%" stop-color="#1b8f3a" />
     </linearGradient>
   </defs>
 
@@ -24,8 +28,8 @@
     fill="#33204f"
   />
   <path d="M124 190 C103 126 119 75 176 50 C177 104 198 151 238 179 Z" fill="url(#redHat)" />
-  <path d="M203 178 C228 129 237 79 256 36 C275 79 284 129 309 178 Z" fill="url(#purpleHat)" />
-  <path d="M274 179 C314 151 335 104 336 50 C393 75 409 126 388 190 Z" fill="url(#redHat)" />
+  <path d="M203 178 C228 129 237 79 256 36 C275 79 284 129 309 178 Z" fill="url(#blueHat)" />
+  <path d="M274 179 C314 151 335 104 336 50 C393 75 409 126 388 190 Z" fill="url(#greenHat)" />
   <circle cx="176" cy="50" r="24" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
   <circle cx="256" cy="36" r="26" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
   <circle cx="336" cy="50" r="24" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
