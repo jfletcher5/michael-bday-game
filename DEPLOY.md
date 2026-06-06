@@ -2,6 +2,8 @@
 
 This project deploys a Next.js static export to **Firebase Hosting** (`michaels-web-game`), along with Firestore rules, Storage rules, and Cloud Functions.
 
+CI deploys automatically on every push to `main` via `.github/workflows/firebase-deploy.yml`.
+
 ## Architecture
 
 | Component | Source | Deploy target |
