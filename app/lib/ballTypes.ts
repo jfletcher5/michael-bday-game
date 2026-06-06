@@ -1,6 +1,6 @@
 // Ball type configurations for the shop and gameplay
 // Each ball type has a unique visual style that can be purchased with coins
-// Uses Twemoji (Twitter's open-source emoji library) for themed ball images
+// Uses Twemoji and local artwork for themed ball images
 
 import { BallType } from './types';
 import { getSeasonBallById } from './seasons';
@@ -15,7 +15,7 @@ const TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/
 /**
  * Available ball types in the game
  * - 1 default (free) ball
- * - 5 purchasable themed ball types with images
+ * - Purchasable themed ball types with images
  */
 export const BALL_TYPES: BallType[] = [
   {
@@ -77,6 +77,17 @@ export const BALL_TYPES: BallType[] = [
     isDefault: false,
     imageUrl: `${TWEMOJI_BASE}/2601.svg`, // ☁️ Cloud (fluffy like a marshmallow)
     description: 'The legendary marshmallow ball. Soft, sweet, and extremely rare!',
+  },
+  {
+    id: 'jester-clown',
+    name: 'Jester Clown Ball',
+    price: 10000,
+    color: '#ffe3a1',
+    strokeColor: '#8f0013',
+    isDefault: false,
+    // Local artwork keeps the custom clown face, red nose, and jester hat available offline.
+    imageUrl: '/jester-clown-ball.svg',
+    description: 'A goofy clown face ball with a red nose and jester hat!',
   },
   {
     id: 'macy',

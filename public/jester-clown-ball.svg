@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Jester Clown Ball</title>
+  <desc id="desc">A smiling clown face with a red nose and a red, purple, and gold jester hat.</desc>
+  <defs>
+    <radialGradient id="faceGradient" cx="42%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#fff7df" />
+      <stop offset="58%" stop-color="#ffe3a1" />
+      <stop offset="100%" stop-color="#f4b85f" />
+    </radialGradient>
+    <linearGradient id="redHat" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff4d6d" />
+      <stop offset="100%" stop-color="#b00030" />
+    </linearGradient>
+    <linearGradient id="purpleHat" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#9d4edd" />
+      <stop offset="100%" stop-color="#4a148c" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="256" cy="276" r="188" fill="#312052" opacity="0.16" />
+
+  <path
+    d="M126 189 C99 118 119 54 183 31 C191 88 211 128 256 151 C300 128 321 88 329 31 C392 54 413 118 386 189 Z"
+    fill="#33204f"
+  />
+  <path d="M124 190 C103 126 119 75 176 50 C177 104 198 151 238 179 Z" fill="url(#redHat)" />
+  <path d="M203 178 C228 129 237 79 256 36 C275 79 284 129 309 178 Z" fill="url(#purpleHat)" />
+  <path d="M274 179 C314 151 335 104 336 50 C393 75 409 126 388 190 Z" fill="url(#redHat)" />
+  <circle cx="176" cy="50" r="24" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
+  <circle cx="256" cy="36" r="26" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
+  <circle cx="336" cy="50" r="24" fill="#ffd166" stroke="#8a5d00" stroke-width="8" />
+  <path d="M117 190 C162 161 350 161 395 190" fill="none" stroke="#ffd166" stroke-width="24" stroke-linecap="round" />
+  <path d="M117 190 C162 161 350 161 395 190" fill="none" stroke="#8a5d00" stroke-width="7" stroke-linecap="round" />
+
+  <circle cx="256" cy="290" r="172" fill="url(#faceGradient)" stroke="#6d3a00" stroke-width="14" />
+  <circle cx="178" cy="267" r="38" fill="#ffffff" />
+  <circle cx="334" cy="267" r="38" fill="#ffffff" />
+  <circle cx="188" cy="272" r="17" fill="#2d1e2f" />
+  <circle cx="324" cy="272" r="17" fill="#2d1e2f" />
+  <circle cx="194" cy="266" r="6" fill="#ffffff" />
+  <circle cx="330" cy="266" r="6" fill="#ffffff" />
+
+  <circle cx="256" cy="326" r="42" fill="#ef233c" stroke="#8f0013" stroke-width="10" />
+  <circle cx="242" cy="310" r="12" fill="#ff9cab" opacity="0.8" />
+
+  <circle cx="129" cy="312" r="32" fill="#ff8fab" opacity="0.8" />
+  <circle cx="383" cy="312" r="32" fill="#ff8fab" opacity="0.8" />
+  <path d="M172 370 C205 430 307 430 340 370" fill="none" stroke="#7b1e3c" stroke-width="18" stroke-linecap="round" />
+  <path d="M190 386 C218 407 294 407 322 386" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.9" />
+  <path d="M149 215 C169 196 200 196 219 215" fill="none" stroke="#5b255f" stroke-width="13" stroke-linecap="round" />
+  <path d="M293 215 C312 196 343 196 363 215" fill="none" stroke="#5b255f" stroke-width="13" stroke-linecap="round" />
+</svg>
