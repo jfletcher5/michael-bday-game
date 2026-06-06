@@ -7,6 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "deploy": "npm run build && npx firebase-tools deploy --project michaels-web-game",
+    "deploy:hosting": "npm run build && npx firebase-tools deploy --only hosting --project michaels-web-game",
+    "deploy:rules": "npx firebase-tools deploy --only firestore:rules,storage --project michaels-web-game",
+    "deploy:functions": "cd functions && npm run build && cd .. && npx firebase-tools deploy --only functions --project michaels-web-game",
     "seed:seasons": "tsx scripts/seedSeasonConfigs.ts",
     "reset:may-season": "tsx scripts/resetMaySeasonAchievements.ts"
   },
