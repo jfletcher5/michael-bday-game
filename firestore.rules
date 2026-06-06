@@ -56,6 +56,13 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Admin-created limited-time shop offers. Players read these from /shop;
+    // writes follow the existing admin-panel trust model used for events.
+    match /shopOffers/{offerId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Global polls + per-user answer subdocs.
     match /polls/{pollId} {
       allow read: if true;

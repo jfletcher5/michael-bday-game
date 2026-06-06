@@ -7,6 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "deploy": "npm run build && firebase deploy --project michaels-web-game",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting --project michaels-web-game",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage --project michaels-web-game",
+    "deploy:functions": "cd functions && npm run build && cd .. && firebase deploy --only functions --project michaels-web-game",
     "seed:seasons": "tsx scripts/seedSeasonConfigs.ts",
     "reset:may-season": "tsx scripts/resetMaySeasonAchievements.ts"
   },
@@ -25,6 +29,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.0",
+    "firebase-tools": "15.19.1",
     "firebase-admin": "^13.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",

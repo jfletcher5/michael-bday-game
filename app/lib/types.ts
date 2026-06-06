@@ -46,13 +46,13 @@ export interface User {
   isAdmin?: boolean;     // True for users allowed to access the /admin panel
   seenMessageIds?: string[]; // Global broadcast messages this user has dismissed
   playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
-  auroraShards?: number; // Aurora Event shard progress, capped at 12
-  auroraBallUnlocked?: boolean; // True after the player reaches 12 Aurora Shards
+  auroraShards?: number; // Saved Aurora Shard progress, capped at 12
+  auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
 }
 
 /**
  * Supported game-event types triggered by admins.
- * Most effects are visual-only; Aurora also enables shard drops at the 300m challenge.
+ * Most are visual-only effects; Aurora also enables shard progression.
  */
 export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave' | 'aurora';
 
@@ -77,6 +77,22 @@ export interface BroadcastMessage {
   createdBy: string;
   createdAtMs: number;
   expiresAtMs: number;     // toasts older than this are not shown anymore
+}
+
+/**
+ * A limited-time shop offer created by admins.
+ * Offers start immediately today, but startAtMs is stored so future scheduling
+ * can reuse the same client-side active/upcoming filtering.
+ */
+export interface ShopOffer {
+  id: string;
+  itemType: 'ball';
+  itemId: string;
+  price: number;
+  startAtMs: number;
+  endsAtMs: number;
+  createdBy: string;
+  createdAtMs: number;
 }
 
 /**

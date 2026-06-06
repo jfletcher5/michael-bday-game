@@ -11,25 +11,28 @@ import {
   deleteGameEvent,
   createBroadcastMessage,
   subscribeToActiveMessages,
+  createShopOffer,
+  deleteShopOffer,
+  subscribeToActiveShopOffers,
   createPoll,
   subscribeToActivePoll,
   closePoll,
 } from '../lib/firestore';
-import { User, GameEvent, BroadcastMessage, Poll, GameEventType } from '../lib/types';
-import { formatPrice } from '../lib/ballTypes';
-import { getBallTypeById } from '../lib/ballTypes';
+import { User, GameEvent, BroadcastMessage, ShopOffer, Poll, GameEventType, BallType } from '../lib/types';
+import { formatPrice, getBallTypeById, getOfferableBallTypes } from '../lib/ballTypes';
 import VerifiedBadge from '../components/VerifiedBadge';
 
-type Tab = 'events' | 'players' | 'polls' | 'messages';
+type Tab = 'events' | 'offers' | 'players' | 'polls' | 'messages';
 
 const EVENT_TYPES: { id: GameEventType; label: string; emoji: string; description: string }[] = [
   { id: 'taco-rain', label: 'Taco Rain', emoji: '🌮', description: 'Tacos rain from the top of the screen.' },
   { id: 'meteor-shower', label: 'Meteor Shower', emoji: '☄️', description: 'Meteors streak across the screen.' },
   { id: 'crab-rave', label: 'Crab Rave', emoji: '🦀', description: 'Crab Rave audio with dancing crabs, lasers, and speakers.' },
-  { id: 'aurora', label: 'Aurora Event', emoji: '🌌', description: 'Dark green aurora sky with shard drops at the 300m challenge.' },
+  { id: 'aurora', label: 'Aurora Event', emoji: '🌌', description: 'Black and dark-green aurora sky with shard drops at 300m.' },
 ];
 
 const EVENT_DURATION_SEC = 5 * 60;
+const OFFERABLE_BALLS = getOfferableBallTypes();
 
 /** Format a Date for `<input type="datetime-local" />` in the user's timezone. */
 function toDatetimeLocalValue(date: Date): string {
@@ -43,6 +46,26 @@ function defaultScheduledAt(): string {
   d.setMinutes(d.getMinutes() + 5);
   d.setSeconds(0, 0);
   return toDatetimeLocalValue(d);
+}
+
+/** Default offer expiration: tomorrow, seconds cleared for cleaner admin input. */
+function defaultOfferEndsAt(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setSeconds(0, 0);
+  return toDatetimeLocalValue(d);
+}
+
+function formatOfferTimeLeft(endsAtMs: number, nowMs: number): string {
+  const diffMs = Math.max(0, endsAtMs - nowMs);
+  const totalMinutes = Math.ceil(diffMs / (60 * 1000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${Math.max(1, minutes)}m`;
 }
 
 export default function AdminPage() {
@@ -100,6 +123,7 @@ export default function AdminPage() {
             {(
               [
                 { id: 'events', label: 'Events' },
+                { id: 'offers', label: 'Shop Offers' },
                 { id: 'players', label: 'Players' },
                 { id: 'polls', label: 'Polls' },
                 { id: 'messages', label: 'Messages' },
@@ -122,6 +146,7 @@ export default function AdminPage() {
           {/* Tab content */}
           <div className="p-4 sm:p-6 min-h-[420px]">
             {tab === 'events' && <EventsTab admin={user} />}
+            {tab === 'offers' && <OffersTab admin={user} />}
             {tab === 'players' && <PlayersTab />}
             {tab === 'polls' && <PollsTab admin={user} />}
             {tab === 'messages' && <MessagesTab admin={user} />}
@@ -291,6 +316,214 @@ function EventsTab({ admin }: { admin: User }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// =============================================================
+// Shop Offers tab
+// =============================================================
+
+function OffersTab({ admin }: { admin: User }) {
+  const [itemId, setItemId] = useState(OFFERABLE_BALLS[0]?.id ?? '');
+  const [endsAt, setEndsAt] = useState(defaultOfferEndsAt);
+  const [price, setPrice] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [offers, setOffers] = useState<ShopOffer[]>([]);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const unsub = subscribeToActiveShopOffers(setOffers);
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowMs(Date.now()), 30 * 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const selectedBall = OFFERABLE_BALLS.find((ball) => ball.id === itemId);
+  const visibleOffers = offers.filter((offer) => offer.endsAtMs > nowMs);
+
+  const handleCreate = async () => {
+    setFeedback(null);
+    const parsedPrice = Number(price);
+    const endsAtMs = new Date(endsAt).getTime();
+
+    if (!itemId || !selectedBall) {
+      setFeedback('Pick a ball to offer');
+      return;
+    }
+    if (Number.isNaN(endsAtMs) || endsAtMs <= Date.now()) {
+      setFeedback('Expiration must be a future date and time');
+      return;
+    }
+    if (price.trim() === '') {
+      setFeedback('Price required');
+      return;
+    }
+    if (!Number.isInteger(parsedPrice) || parsedPrice < 0) {
+      setFeedback('Price must be a whole number 0 or higher');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await createShopOffer(itemId, parsedPrice, endsAtMs, admin.username);
+      setFeedback('Shop offer created!');
+      setPrice('');
+      setEndsAt(defaultOfferEndsAt());
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to create offer');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <h2 className="text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide">Create a Shop Offer</h2>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Offer item</label>
+            <select
+              value={itemId}
+              onChange={(e) => setItemId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            >
+              {OFFERABLE_BALLS.map((ball) => (
+                <option key={ball.id} value={ball.id}>
+                  {ball.name} — normal {formatPrice(ball.price)} coins
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedBall && (
+            <div className="flex items-center gap-3 rounded-lg border border-purple-100 bg-purple-50/50 p-3">
+              <MiniBallPreview ball={selectedBall} />
+              <div>
+                <div className="font-bold text-gray-800 text-sm">{selectedBall.name}</div>
+                <div className="text-xs text-gray-500">
+                  Normal price: {formatPrice(selectedBall.price)} coins
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Offer expires</label>
+            <input
+              type="datetime-local"
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Coin price</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="0"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">
+              This is the sale price charged to players, and it can be 0 coins.
+            </p>
+          </div>
+
+          <button
+            onClick={handleCreate}
+            disabled={submitting}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 hover:scale-[1.01] transition"
+          >
+            {submitting ? 'Creating...' : 'Create Offer'}
+          </button>
+
+          {feedback && <div className="text-xs text-center text-purple-600">{feedback}</div>}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide">
+          Active &amp; Upcoming Offers ({visibleOffers.length})
+        </h2>
+        {visibleOffers.length === 0 ? (
+          <div className="text-sm text-gray-400 italic border border-dashed border-gray-200 rounded-lg p-6 text-center">
+            No shop offers
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {visibleOffers.map((offer) => {
+              const ball = getBallTypeById(offer.itemId);
+              const isActive = nowMs >= offer.startAtMs && nowMs < offer.endsAtMs;
+              return (
+                <div
+                  key={offer.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border ${
+                    isActive ? 'bg-green-50 border-green-300' : 'bg-blue-50 border-blue-200'
+                  }`}
+                >
+                  <MiniBallPreview ball={ball} />
+                  <div className="flex-1">
+                    <div className="font-bold text-sm text-gray-800">{ball.name}</div>
+                    <div className="text-[11px] text-gray-600">
+                      {isActive
+                        ? `Active — ${formatOfferTimeLeft(offer.endsAtMs, nowMs)} left`
+                        : `Starts ${new Date(offer.startAtMs).toLocaleString()}`}
+                    </div>
+                    <div className="text-[11px] text-yellow-700 font-semibold">
+                      {formatPrice(offer.price)} coins · ends {new Date(offer.endsAtMs).toLocaleString()}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Cancel offer for ${ball.name}?`)) {
+                        deleteShopOffer(offer.id).catch((err) =>
+                          setFeedback(err instanceof Error ? err.message : 'Failed to cancel offer'),
+                        );
+                      }
+                    }}
+                    className="bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 rounded-md transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiniBallPreview({ ball }: { ball: BallType }) {
+  return (
+    <div
+      className="w-10 h-10 rounded-full shadow flex items-center justify-center overflow-hidden shrink-0"
+      style={{
+        backgroundColor: ball.color,
+        border: `2px solid ${ball.strokeColor}`,
+      }}
+    >
+      {ball.imageUrl && (
+        // Use a plain image in admin to avoid adding layout work to the dense list.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={ball.imageUrl}
+          alt={ball.name}
+          className={ball.imageCover ? 'w-full h-full object-cover' : 'w-7 h-7'}
+          style={ball.imageFilter ? { filter: ball.imageFilter } : undefined}
+        />
+      )}
     </div>
   );
 }

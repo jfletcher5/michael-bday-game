@@ -1,9 +1,9 @@
 // Ball type configurations for the shop and gameplay
 // Each ball type has a unique visual style that can be purchased with coins
-// Uses Twemoji (Twitter's open-source emoji library) for themed ball images
+// Uses Twemoji and local artwork for themed ball images
 
 import { BallType } from './types';
-import { getSeasonBallById } from './seasons';
+import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
 import { AURORA_BALL_ID } from './aurora';
 
 /**
@@ -16,7 +16,7 @@ const TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/
 /**
  * Available ball types in the game
  * - 1 default (free) ball
- * - 5 purchasable themed ball types with images
+ * - Purchasable themed ball types with images
  */
 export const BALL_TYPES: BallType[] = [
   {
@@ -80,6 +80,17 @@ export const BALL_TYPES: BallType[] = [
     description: 'The legendary marshmallow ball. Soft, sweet, and extremely rare!',
   },
   {
+    id: 'jester-clown',
+    name: 'Jester Clown Ball',
+    price: 10000,
+    color: '#ffe3a1',
+    strokeColor: '#8f0013',
+    isDefault: false,
+    // Local artwork keeps the custom clown face, red nose, and jester hat available offline.
+    imageUrl: '/jester-clown-ball.svg',
+    description: 'A goofy clown face ball with a red nose and jester hat!',
+  },
+  {
     id: 'macy',
     name: 'Macy',
     price: 50000,
@@ -94,10 +105,10 @@ export const BALL_TYPES: BallType[] = [
     id: AURORA_BALL_ID,
     name: 'Aurora Ball',
     price: 0,
-    color: '#020806',
-    strokeColor: '#0f8f4d',
+    color: '#001a0f',
+    strokeColor: '#0b8f45',
     isDefault: false,
-    description: 'A dark green Aurora Event reward, unlocked after collecting 12 Aurora Shards.',
+    description: 'A black and dark-green event ball earned by collecting 12 Aurora Shards.',
   },
 ];
 
@@ -116,6 +127,20 @@ export function getBallTypeById(ballId: string): BallType {
  */
 export function getDefaultBallType(): BallType {
   return BALL_TYPES.find(b => b.isDefault) || BALL_TYPES[0];
+}
+
+/**
+ * Balls that admins can place in limited-time shop offers.
+ * Season balls are included here even if players normally earn them elsewhere.
+ */
+export function getOfferableBallTypes(): BallType[] {
+  const seen = new Set<string>();
+  return [...BALL_TYPES, ...SEASON_CONFIGS.map((season) => season.seasonBall)]
+    .filter((ball) => {
+      if (ball.isDefault || seen.has(ball.id)) return false;
+      seen.add(ball.id);
+      return true;
+    });
 }
 
 /**
