@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { purchaseBall, selectBall, getUserData } from '../lib/firestore';
-import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
+import { BALL_TYPES, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
 import MenuBackground from '../components/MenuBackground';

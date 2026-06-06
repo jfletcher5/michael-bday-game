@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession, getUserData, awardAuroraShard } from '../lib/firestore';
+import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as spendExtraBall, GameSession, getUserData, awardAuroraShard } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser as persistCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import ControlsComponent from './components/Controls';
@@ -245,7 +245,7 @@ function Game() {
     const user = currentUserRef.current;
     if (!user) return;
     try {
-      const updated = await useExtraBall(user.username);
+      const updated = await spendExtraBall(user.username);
       syncCurrentUser(updated);
       reviveSignalRef.current = true;
       setGameState('playing');
