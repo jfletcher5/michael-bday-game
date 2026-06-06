@@ -477,6 +477,14 @@ export async function awardAuroraShard(username: string): Promise<AuroraShardAwa
     const alreadyUnlocked = userData.auroraBallUnlocked === true || currentShards >= AURORA_SHARD_GOAL;
 
     if (alreadyUnlocked) {
+      if (userData.auroraShards !== AURORA_SHARD_GOAL || userData.auroraBallUnlocked !== true) {
+        // Normalize older/partial documents so the unlock state is persisted forever.
+        transaction.update(userRef, {
+          auroraShards: AURORA_SHARD_GOAL,
+          auroraBallUnlocked: true,
+        });
+      }
+
       return {
         user: {
           ...userData,
