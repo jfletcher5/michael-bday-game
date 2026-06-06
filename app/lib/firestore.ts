@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings } from './types';
+import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
@@ -806,6 +806,7 @@ export async function useExtraBall(username: string): Promise<User> {
 const EVENTS_COLLECTION = 'events';
 const POLLS_COLLECTION = 'polls';
 const MESSAGES_COLLECTION = 'messages';
+const SHOP_OFFERS_COLLECTION = 'shopOffers';
 
 /**
  * List every user document. Used by the admin Players tab.
@@ -899,6 +900,72 @@ export function subscribeToActiveMessages(
 export async function markMessageSeen(username: string, messageId: string): Promise<void> {
   const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
   await updateDoc(userRef, { seenMessageIds: arrayUnion(messageId) });
+}
+
+// ----- Shop Offers -----
+
+export async function createShopOffer(
+  itemId: string,
+  price: number,
+  endsAtMs: number,
+  createdBy: string,
+): Promise<void> {
+  const now = Date.now();
+  if (!itemId) throw new Error('Offer item required');
+  if (!Number.isInteger(price) || price < 0) throw new Error('Price must be a whole number');
+  if (endsAtMs <= now) throw new Error('Expiration must be in the future');
+
+  await addDoc(collection(db, SHOP_OFFERS_COLLECTION), {
+    itemType: 'ball',
+    itemId,
+    price,
+    startAtMs: now,
+    endsAtMs,
+    createdBy,
+    createdAtMs: now,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Cancel a shop offer by deleting the document so player/admin listeners
+ * remove it immediately.
+ */
+export async function deleteShopOffer(offerId: string): Promise<void> {
+  await deleteDoc(doc(db, SHOP_OFFERS_COLLECTION, offerId));
+}
+
+/**
+ * Subscribe to offers that have not ended yet. Start-time filtering stays in
+ * the UI so future-scheduled offers become visible without a composite index.
+ */
+export function subscribeToActiveShopOffers(
+  onChange: (offers: ShopOffer[]) => void,
+): Unsubscribe {
+  const q = query(collection(db, SHOP_OFFERS_COLLECTION), orderBy('createdAtMs', 'desc'), limit(50));
+  return onSnapshot(q, (snap) => {
+    const now = Date.now();
+    const offers: ShopOffer[] = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<ShopOffer, 'id'>) }))
+      .filter((offer) => offer.itemType === 'ball' && offer.endsAtMs > now);
+    onChange(offers);
+  });
+}
+
+/**
+ * Purchase through an offer after re-reading the offer doc so an already-open
+ * shop page cannot buy from an offer that expired after it rendered.
+ */
+export async function purchaseShopOffer(username: string, offerId: string): Promise<User> {
+  const offerDoc = await getDoc(doc(db, SHOP_OFFERS_COLLECTION, offerId));
+  if (!offerDoc.exists()) throw new Error('Offer no longer exists');
+
+  const offer = { id: offerDoc.id, ...(offerDoc.data() as Omit<ShopOffer, 'id'>) };
+  const now = Date.now();
+  if (offer.itemType !== 'ball') throw new Error('Unsupported offer item');
+  if (now < offer.startAtMs || now >= offer.endsAtMs) throw new Error('Offer expired');
+
+  return purchaseBall(username, offer.itemId, offer.price);
 }
 
 // ----- Polls -----

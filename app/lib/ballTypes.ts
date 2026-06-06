@@ -3,7 +3,7 @@
 // Uses Twemoji (Twitter's open-source emoji library) for themed ball images
 
 import { BallType } from './types';
-import { getSeasonBallById } from './seasons';
+import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
 import { AURORA_BALL_ID } from './aurora';
 
 /**
@@ -116,6 +116,20 @@ export function getBallTypeById(ballId: string): BallType {
  */
 export function getDefaultBallType(): BallType {
   return BALL_TYPES.find(b => b.isDefault) || BALL_TYPES[0];
+}
+
+/**
+ * Balls that admins can place in limited-time shop offers.
+ * Season balls are included here even if players normally earn them elsewhere.
+ */
+export function getOfferableBallTypes(): BallType[] {
+  const seen = new Set<string>();
+  return [...BALL_TYPES, ...SEASON_CONFIGS.map((season) => season.seasonBall)]
+    .filter((ball) => {
+      if (ball.isDefault || seen.has(ball.id)) return false;
+      seen.add(ball.id);
+      return true;
+    });
 }
 
 /**

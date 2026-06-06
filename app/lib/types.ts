@@ -80,6 +80,22 @@ export interface BroadcastMessage {
 }
 
 /**
+ * A limited-time shop offer created by admins.
+ * Offers start immediately today, but startAtMs is stored so future scheduling
+ * can reuse the same client-side active/upcoming filtering.
+ */
+export interface ShopOffer {
+  id: string;
+  itemType: 'ball';
+  itemId: string;
+  price: number;
+  startAtMs: number;
+  endsAtMs: number;
+  createdBy: string;
+  createdAtMs: number;
+}
+
+/**
  * A global poll shown to every user the next time they're online.
  */
 export interface Poll {
