@@ -3,7 +3,7 @@
 // Uses Twemoji (Twitter's open-source emoji library) for themed ball images
 
 import { BallType } from './types';
-import { getSeasonBallById } from './seasons';
+import { getSeasonBallById, SEASON_CONFIGS } from './seasons';
 
 /**
  * Twemoji CDN base URL for SVG images
@@ -98,6 +98,14 @@ export const BALL_TYPES: BallType[] = [
  */
 export function getBallTypeById(ballId: string): BallType {
   return BALL_TYPES.find(b => b.id === ballId) || getSeasonBallById(ballId) || BALL_TYPES[0];
+}
+
+/**
+ * Get every ball skin admins can feature in Shop Offers.
+ */
+export function getOfferableBallTypes(): BallType[] {
+  const seasonBalls = SEASON_CONFIGS.map((season) => season.seasonBall);
+  return [...BALL_TYPES, ...seasonBalls];
 }
 
 /**

@@ -24,7 +24,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings } from './types';
+import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings, ShopOffer } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 
@@ -739,6 +739,7 @@ export async function useExtraBall(username: string): Promise<User> {
 const EVENTS_COLLECTION = 'events';
 const POLLS_COLLECTION = 'polls';
 const MESSAGES_COLLECTION = 'messages';
+const SHOP_OFFERS_COLLECTION = 'shopOffers';
 
 /**
  * List every user document. Used by the admin Players tab.
@@ -832,6 +833,52 @@ export function subscribeToActiveMessages(
 export async function markMessageSeen(username: string, messageId: string): Promise<void> {
   const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
   await updateDoc(userRef, { seenMessageIds: arrayUnion(messageId) });
+}
+
+// ----- Shop Offers -----
+
+export async function createShopOffer(
+  itemId: string,
+  price: number,
+  endsAtMs: number,
+  createdBy: string,
+): Promise<void> {
+  const now = Date.now();
+  await addDoc(collection(db, SHOP_OFFERS_COLLECTION), {
+    itemType: 'ball',
+    itemId,
+    price,
+    startAtMs: now,
+    endsAtMs,
+    createdBy,
+    createdAtMs: now,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Delete/cancel an offer so both admin and shop listeners remove it at once.
+ */
+export async function deleteShopOffer(offerId: string): Promise<void> {
+  await deleteDoc(doc(db, SHOP_OFFERS_COLLECTION, offerId));
+}
+
+/**
+ * Subscribe to recent non-expired offers. Time-window filtering stays on the
+ * client to avoid requiring a composite Firestore index for start/end ranges.
+ */
+export function subscribeToActiveShopOffers(
+  onChange: (offers: ShopOffer[]) => void,
+): Unsubscribe {
+  const q = query(collection(db, SHOP_OFFERS_COLLECTION), orderBy('startAtMs', 'desc'), limit(50));
+  return onSnapshot(q, (snap) => {
+    const now = Date.now();
+    const offers: ShopOffer[] = snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<ShopOffer, 'id'>) }))
+      .filter((offer) => offer.endsAtMs > now)
+      .sort((a, b) => a.endsAtMs - b.endsAtMs);
+    onChange(offers);
+  });
 }
 
 // ----- Polls -----

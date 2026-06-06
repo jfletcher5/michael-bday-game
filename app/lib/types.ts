@@ -96,6 +96,20 @@ export interface Poll {
 }
 
 /**
+ * A limited-time shop deal configured by admins.
+ */
+export interface ShopOffer {
+  id: string;
+  itemType: 'ball';        // First release only supports ball skins.
+  itemId: string;          // BallType id from regular or season catalogs.
+  price: number;           // Offer sale price charged in coins.
+  startAtMs: number;       // unix epoch ms when the offer becomes visible.
+  endsAtMs: number;        // unix epoch ms when the offer disappears.
+  createdBy: string;       // admin username
+  createdAtMs: number;
+}
+
+/**
  * Ball type configuration for shop and gameplay
  */
 export interface BallType {

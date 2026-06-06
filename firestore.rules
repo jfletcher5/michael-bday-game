@@ -56,6 +56,13 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Limited-time shop offers. Reads are public for the shop page; writes
+    // currently trust the admin-only UI, consistent with events/messages.
+    match /shopOffers/{offerId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Global polls + per-user answer subdocs.
     match /polls/{pollId} {
       allow read: if true;

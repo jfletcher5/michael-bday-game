@@ -4,11 +4,23 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
-import { purchaseBall, selectBall, getUserData } from '../lib/firestore';
+import { purchaseBall, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
-import { User, BallType } from '../lib/types';
+import { User, BallType, ShopOffer } from '../lib/types';
 import MenuBackground from '../components/MenuBackground';
+
+function formatOfferTimeLeft(endsAtMs: number, now: number): string {
+  const diff = Math.max(0, endsAtMs - now);
+  const minutes = Math.ceil(diff / (1000 * 60));
+  const days = Math.floor(minutes / (60 * 24));
+  const hours = Math.floor((minutes % (60 * 24)) / 60);
+  const mins = minutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${Math.max(1, mins)}m`;
+}
 
 /**
  * Shop Page
@@ -26,6 +38,8 @@ export default function ShopPage() {
   const [purchaseLoading, setPurchaseLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
+  const [now, setNow] = useState(Date.now());
 
   // Load user data on mount
   useEffect(() => {
@@ -46,6 +60,16 @@ export default function ShopPage() {
     });
   }, [router]);
 
+  useEffect(() => {
+    const unsub = subscribeToActiveShopOffers(setShopOffers);
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Handle ball purchase
   const handlePurchase = async (ball: BallType) => {
     if (!user) return;
@@ -61,6 +85,35 @@ export default function ShopPage() {
       setSuccess(`Successfully purchased ${ball.name}!`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to purchase';
+      setError(message);
+    } finally {
+      setPurchaseLoading(null);
+    }
+  };
+
+  // Handle offer purchase with the sale price while reusing permanent ball ownership.
+  const handleOfferPurchase = async (offer: ShopOffer) => {
+    if (!user) return;
+
+    const ball = getBallTypeById(offer.itemId);
+    if (Date.now() >= offer.endsAtMs) {
+      setShopOffers((current) => current.filter((item) => item.id !== offer.id));
+      setError('That offer has expired.');
+      setSuccess(null);
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setPurchaseLoading(`offer-${offer.id}`);
+
+    try {
+      const updatedUser = await purchaseBall(user.username, ball.id, offer.price);
+      setUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setSuccess(`Successfully purchased ${ball.name} for ${formatPrice(offer.price)} coins!`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to purchase offer';
       setError(message);
     } finally {
       setPurchaseLoading(null);
@@ -197,6 +250,101 @@ export default function ShopPage() {
     );
   };
 
+  const renderOfferCard = (offer: ShopOffer) => {
+    if (!user) return null;
+
+    const ball = getBallTypeById(offer.itemId);
+    const owned = isBallOwned(ball.id, user.ownedBalls);
+    const selected = user.selectedBall === ball.id;
+    const canAfford = user.totalCoins >= offer.price;
+    const isExpired = now >= offer.endsAtMs;
+    const isProcessing = purchaseLoading === `offer-${offer.id}` || purchaseLoading === ball.id;
+    const percentOff = ball.price > offer.price && ball.price > 0
+      ? Math.max(1, Math.round(((ball.price - offer.price) / ball.price) * 100))
+      : null;
+
+    return (
+      <div
+        key={offer.id}
+        className={`relative overflow-hidden rounded-2xl border-2 bg-gradient-to-b from-amber-50 via-white to-orange-50 shadow-xl flex flex-col min-h-[260px] ${
+          selected ? 'border-purple-500 ring-2 ring-purple-200' : owned ? 'border-green-300' : 'border-amber-300'
+        }`}
+      >
+        <div className="bg-gradient-to-r from-orange-500 to-pink-500 text-white text-center font-black text-lg py-2 tracking-wide">
+          {formatOfferTimeLeft(offer.endsAtMs, now)}
+        </div>
+
+        <div className="absolute top-10 right-3 bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded-full shadow">
+          {percentOff ? `${percentOff}% OFF` : 'SPECIAL OFFER'}
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-4 pt-8 pb-4">
+          <div
+            className="w-24 h-24 rounded-full shadow-lg flex items-center justify-center overflow-hidden mb-3"
+            style={{
+              backgroundColor: ball.color,
+              border: `4px solid ${ball.strokeColor}`,
+            }}
+          >
+            {ball.imageUrl && (
+              <Image
+                src={ball.imageUrl}
+                alt={ball.name}
+                width={96}
+                height={96}
+                className={ball.imageCover ? 'w-full h-full object-cover' : 'w-16 h-16'}
+                style={ball.imageFilter ? { filter: ball.imageFilter } : undefined}
+                unoptimized
+              />
+            )}
+          </div>
+
+          <h3 className="text-center font-black text-gray-900 text-lg">{ball.name}</h3>
+          {ball.description && (
+            <p className="text-center text-xs text-gray-500 mt-1 line-clamp-2">{ball.description}</p>
+          )}
+        </div>
+
+        <div className="bg-white/80 border-t border-amber-200 p-3">
+          {!owned && (
+            <div className="text-center mb-2">
+              <span className="text-yellow-600 font-black text-lg">{formatPrice(offer.price)} coins</span>
+              {percentOff && (
+                <span className="ml-2 text-xs text-gray-400 line-through">{formatPrice(ball.price)}</span>
+              )}
+            </div>
+          )}
+
+          {owned ? (
+            <button
+              onClick={() => handleSelect(ball)}
+              disabled={selected || isProcessing}
+              className={`w-full min-h-[44px] py-2 px-4 rounded-lg font-semibold text-sm transition-all ${
+                selected
+                  ? 'bg-purple-100 text-purple-600 cursor-default'
+                  : 'bg-purple-500 text-white hover:bg-purple-600'
+              } disabled:opacity-50`}
+            >
+              {isProcessing ? 'Selecting...' : selected ? 'Selected' : 'Owned - Select'}
+            </button>
+          ) : (
+            <button
+              onClick={() => handleOfferPurchase(offer)}
+              disabled={!canAfford || isProcessing || isExpired}
+              className={`w-full min-h-[44px] py-2 px-4 rounded-lg font-semibold text-sm transition-all ${
+                canAfford && !isExpired
+                  ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              } disabled:opacity-50`}
+            >
+              {isProcessing ? 'Purchasing...' : isExpired ? 'Expired' : canAfford ? 'Buy Offer' : 'Not enough'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   if (isLoading) {
     return (
       <MenuBackground className="min-h-screen flex items-center justify-center">
@@ -208,6 +356,10 @@ export default function ShopPage() {
   if (!user) {
     return null; // Will redirect to login
   }
+
+  // The subscription is realtime, but this render filter removes offers exactly
+  // when the local countdown ticks past the end time.
+  const visibleOffers = shopOffers.filter((offer) => offer.startAtMs <= now && now < offer.endsAtMs);
 
   return (
     <MenuBackground className="min-h-screen p-4">
@@ -271,6 +423,20 @@ export default function ShopPage() {
             </div>
           ))}
         </div>
+
+        {visibleOffers.length > 0 && (
+          <section className="mt-8">
+            <div className="text-center mb-4">
+              <h2 className="text-2xl sm:text-3xl font-black text-white drop-shadow-lg">
+                Shop Offers
+              </h2>
+              <p className="text-white/80 text-sm">Limited-time restocks picked by admins</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+              {visibleOffers.map((offer) => renderOfferCard(offer))}
+            </div>
+          </section>
+        )}
       </div>
     </MenuBackground>
   );
