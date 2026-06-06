@@ -382,6 +382,11 @@ function Game() {
           </div>
         </div>
       )}
+      {gameState === 'playing' && sessionError && !sessionLoading && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 max-w-[90vw] rounded-lg bg-red-600/90 px-4 py-2 text-center text-xs font-semibold text-white shadow-lg">
+          {sessionError}
+        </div>
+      )}
       
       {/* 2D Game Canvas */}
       <GameCanvas
