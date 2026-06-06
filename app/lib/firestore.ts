@@ -20,6 +20,7 @@ import {
   onSnapshot,
   serverTimestamp,
   increment,
+  runTransaction,
   type Unsubscribe
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -27,6 +28,7 @@ import { db, functions } from './firebase';
 import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
+import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -452,6 +454,62 @@ export async function updateUserStats(
   }
 }
 
+export interface AuroraShardAwardResult {
+  user: User;
+  awarded: boolean;
+  auroraShards: number;
+  auroraBallUnlocked: boolean;
+}
+
+/**
+ * Award one Aurora Shard from the 300m challenge, capped at the unlock goal.
+ * A transaction prevents duplicate async awards from pushing progress over 12.
+ */
+export async function awardAuroraShard(username: string): Promise<AuroraShardAwardResult> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    const currentShards = Math.min(userData.auroraShards ?? 0, AURORA_SHARD_GOAL);
+    const alreadyUnlocked = userData.auroraBallUnlocked === true || currentShards >= AURORA_SHARD_GOAL;
+
+    if (alreadyUnlocked) {
+      return {
+        user: {
+          ...userData,
+          auroraShards: AURORA_SHARD_GOAL,
+          auroraBallUnlocked: true,
+        },
+        awarded: false,
+        auroraShards: AURORA_SHARD_GOAL,
+        auroraBallUnlocked: true,
+      };
+    }
+
+    const nextShards = Math.min(currentShards + 1, AURORA_SHARD_GOAL);
+    const unlocked = nextShards >= AURORA_SHARD_GOAL;
+    const updates = {
+      auroraShards: nextShards,
+      auroraBallUnlocked: unlocked,
+    };
+
+    transaction.update(userRef, updates);
+
+    return {
+      user: {
+        ...userData,
+        ...updates,
+      },
+      awarded: true,
+      auroraShards: nextShards,
+      auroraBallUnlocked: unlocked,
+    };
+  });
+}
+
 /**
  * Purchase a ball type for a user
  * @param username - The username making the purchase
@@ -478,6 +536,15 @@ export async function purchaseBall(
     // Check if already owned
     if (userData.ownedBalls.includes(ballId)) {
       throw new Error('Ball already owned');
+    }
+
+    // Aurora Ball is a free claim only after the shard journey is complete.
+    if (
+      ballId === AURORA_BALL_ID &&
+      userData.auroraBallUnlocked !== true &&
+      (userData.auroraShards ?? 0) < AURORA_SHARD_GOAL
+    ) {
+      throw new Error('Collect all Aurora Shards first');
     }
     
     // Check if user has enough coins

@@ -8,6 +8,7 @@ import { purchaseBall, selectBall, getUserData } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
+import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 import MenuBackground from '../components/MenuBackground';
 
 /**
@@ -58,7 +59,7 @@ export default function ShopPage() {
       const updatedUser = await purchaseBall(user.username, ball.id, ball.price);
       setUser(updatedUser);
       setCurrentUser(updatedUser);
-      setSuccess(`Successfully purchased ${ball.name}!`);
+      setSuccess(ball.price === 0 ? `Successfully claimed ${ball.name}!` : `Successfully purchased ${ball.name}!`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to purchase';
       setError(message);
@@ -96,6 +97,7 @@ export default function ShopPage() {
     const selected = user.selectedBall === ball.id;
     const canAfford = user.totalCoins >= ball.price;
     const isProcessing = purchaseLoading === ball.id;
+    const isFreeClaim = ball.price === 0 && !owned;
 
     return (
       <div
@@ -163,7 +165,7 @@ export default function ShopPage() {
         {/* Price */}
         {!owned && (
           <p className={`text-center text-sm font-semibold mb-3 ${canAfford ? 'text-yellow-600' : 'text-red-500'}`}>
-            {formatPrice(ball.price)} coins
+            {ball.price === 0 ? 'Free' : `${formatPrice(ball.price)} coins`}
           </p>
         )}
 
@@ -190,7 +192,7 @@ export default function ShopPage() {
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             } disabled:opacity-50`}
           >
-            {isProcessing ? 'Purchasing...' : canAfford ? 'Purchase' : 'Not enough'}
+            {isProcessing ? (isFreeClaim ? 'Claiming...' : 'Purchasing...') : isFreeClaim ? 'Claim Free' : canAfford ? 'Purchase' : 'Not enough'}
           </button>
         )}
       </div>
@@ -208,6 +210,14 @@ export default function ShopPage() {
   if (!user) {
     return null; // Will redirect to login
   }
+
+  const auroraShards = Math.min(user.auroraShards ?? 0, AURORA_SHARD_GOAL);
+  const auroraUnlocked = user.auroraBallUnlocked === true || auroraShards >= AURORA_SHARD_GOAL;
+  const visibleBallTypes = BALL_TYPES.filter((ball) => {
+    if (ball.id !== AURORA_BALL_ID) return true;
+    // Keep Aurora Ball hidden until earned, but never hide it after ownership.
+    return auroraUnlocked || user.ownedBalls.includes(AURORA_BALL_ID);
+  });
 
   return (
     <MenuBackground className="min-h-screen p-4">
@@ -260,7 +270,7 @@ export default function ShopPage() {
 
         {/* Ball Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
-          {BALL_TYPES.map(ball => renderBallCard(ball))}
+          {visibleBallTypes.map(ball => renderBallCard(ball))}
           {/* Season-exclusive balls (only shown if owned) */}
           {user && getOwnedSeasonBalls(user.ownedBalls).map(ball => (
             <div key={ball.id} className="relative">

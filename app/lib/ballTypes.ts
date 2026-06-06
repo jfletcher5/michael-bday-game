@@ -4,6 +4,7 @@
 
 import { BallType } from './types';
 import { getSeasonBallById } from './seasons';
+import { AURORA_BALL_ID } from './aurora';
 
 /**
  * Twemoji CDN base URL for SVG images
@@ -88,6 +89,15 @@ export const BALL_TYPES: BallType[] = [
     imageUrl: '/macy_pic.jpeg',
     imageCover: true,
     description: 'Go far with Macy Ball!',
+  },
+  {
+    id: AURORA_BALL_ID,
+    name: 'Aurora Ball',
+    price: 0,
+    color: '#001a0f',
+    strokeColor: '#0b8f45',
+    isDefault: false,
+    description: 'A black and dark-green event ball earned by collecting 12 Aurora Shards.',
   },
 ];
 

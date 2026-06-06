@@ -26,6 +26,7 @@ const EVENT_TYPES: { id: GameEventType; label: string; emoji: string; descriptio
   { id: 'taco-rain', label: 'Taco Rain', emoji: '🌮', description: 'Tacos rain from the top of the screen.' },
   { id: 'meteor-shower', label: 'Meteor Shower', emoji: '☄️', description: 'Meteors streak across the screen.' },
   { id: 'crab-rave', label: 'Crab Rave', emoji: '🦀', description: 'Crab Rave audio with dancing crabs, lasers, and speakers.' },
+  { id: 'aurora', label: 'Aurora Event', emoji: '🌌', description: 'Black and dark-green aurora sky with shard drops at 300m.' },
 ];
 
 const EVENT_DURATION_SEC = 5 * 60;

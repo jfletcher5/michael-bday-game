@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession } from '../lib/firestore';
+import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
+import { AURORA_SHARD_GOAL } from '../lib/aurora';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
@@ -56,6 +57,7 @@ function Game() {
 
   // Current user (if logged in)
   const currentUserRef = useRef<User | null>(null);
+  const [auroraProgress, setAuroraProgress] = useState({ shards: 0, unlocked: false });
 
   // Track last distance milestone for coin calculation (every 50m = 20 coins)
   const lastCoinMilestoneRef = useRef(0);
@@ -70,6 +72,22 @@ function Game() {
   const gameSessionRef = useRef<GameSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true); // Track session initialization state
+
+  const syncCurrentUser = useCallback((updatedUser: User) => {
+    currentUserRef.current = updatedUser;
+    playerIdentityRef.current = {
+      avatarId: updatedUser.avatarId,
+      initials: updatedUser.username,
+    };
+    setCurrentUser(updatedUser);
+
+    // Older users default to zero shards and locked Aurora Ball until Firestore says otherwise.
+    const shards = Math.min(updatedUser.auroraShards ?? 0, AURORA_SHARD_GOAL);
+    setAuroraProgress({
+      shards,
+      unlocked: updatedUser.auroraBallUnlocked === true || shards >= AURORA_SHARD_GOAL,
+    });
+  }, []);
 
   // Lock body scroll while on the game page so the canvas stays pinned.
   useEffect(() => {
@@ -91,12 +109,12 @@ function Game() {
       return;
     }
     
-    currentUserRef.current = user;
-    // Use user's avatar and initials for player identity
-    playerIdentityRef.current = {
-      avatarId: user.avatarId,
-      initials: user.username,
-    };
+    syncCurrentUser(user);
+
+    // Refresh the cached user so Aurora progress survives reloads and cross-device play.
+    getUserData(user.username).then((fresh) => {
+      if (fresh) syncCurrentUser(fresh);
+    });
     
     // Start a secure game session via Cloud Function
     // This is REQUIRED for anti-cheat protection
@@ -117,7 +135,7 @@ function Game() {
     };
     
     initSession();
-  }, [router]);
+  }, [router, syncCurrentUser]);
   
   // Throttle HUD state updates to ~4 times per second instead of every frame.
   useEffect(() => {
@@ -166,6 +184,15 @@ function Game() {
       lastCoinMilestoneRef.current = newMilestone;
     }
   }, []);
+
+  const handleAuroraShardAward = useCallback(async () => {
+    const user = currentUserRef.current;
+    if (!user) return null;
+
+    const result = await awardAuroraShard(user.username);
+    syncCurrentUser(result.user);
+    return result;
+  }, [syncCurrentUser]);
 
   // Handle game over — check for extra balls, then auto-save stats and score
   const handleGameOver = async () => {
@@ -364,6 +391,9 @@ function Game() {
         ballImageUrl={ballType.imageUrl}
         ballImageFilter={ballType.imageFilter}
         zoom={settings.zoom}
+        auroraShardCount={auroraProgress.shards}
+        auroraBallUnlocked={auroraProgress.unlocked}
+        onAuroraShardAward={handleAuroraShardAward}
       />
 
       {/* Keyboard Controls Handler */}

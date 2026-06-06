@@ -4,6 +4,11 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import Matter from 'matter-js';
 import { BOSS_ENCOUNTERS } from '@/app/lib/bosses';
 import { subscribeToActiveEvents } from '@/app/lib/firestore';
+import {
+  AURORA_SHARD_DROP_CHANCE,
+  AURORA_SHARD_GOAL,
+  AURORA_SHARD_MESSAGE_DURATION_MS,
+} from '@/app/lib/aurora';
 import YouTubeBackground from '@/app/components/YouTubeBackground';
 import {
   Controls,
@@ -30,6 +35,17 @@ interface EventParticle {
   kind?: 'crab';
   phase?: number;
   baseY?: number;
+}
+
+interface AuroraShardAwardResult {
+  awarded: boolean;
+  auroraShards: number;
+  auroraBallUnlocked: boolean;
+}
+
+interface AuroraShardNotification {
+  lines: string[];
+  expiresAtMs: number;
 }
 
 // Official Crab Rave YouTube ID — audio-only during the admin event.
@@ -86,6 +102,40 @@ function drawCrabRaveSpeakers(ctx: CanvasRenderingContext2D, width: number, heig
   ctx.restore();
 }
 
+/** Black and dark-green aurora sky for the live Aurora Event. */
+function drawAuroraSky(ctx: CanvasRenderingContext2D, width: number, height: number, nowMs: number) {
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, '#020805');
+  sky.addColorStop(0.55, '#00160d');
+  sky.addColorStop(1, '#000000');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let band = 0; band < 4; band++) {
+    const yBase = height * (0.14 + band * 0.09);
+    const phase = nowMs / (900 + band * 180) + band * 1.7;
+    const ribbon = ctx.createLinearGradient(0, yBase - 60, 0, yBase + 80);
+    ribbon.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    ribbon.addColorStop(0.45, band % 2 === 0 ? 'rgba(0, 120, 58, 0.5)' : 'rgba(8, 74, 38, 0.45)');
+    ribbon.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    ctx.beginPath();
+    ctx.moveTo(0, yBase);
+    for (let x = 0; x <= width; x += 24) {
+      const wave = Math.sin((x / width) * Math.PI * 3 + phase) * (28 + band * 6);
+      ctx.lineTo(x, yBase + wave);
+    }
+    ctx.lineTo(width, yBase + 90);
+    ctx.lineTo(0, yBase + 90);
+    ctx.closePath();
+    ctx.fillStyle = ribbon;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 interface GameCanvasProps {
   controls: Controls;
   onDistanceUpdate: (distance: number) => void;
@@ -101,6 +151,9 @@ interface GameCanvasProps {
   ballImageUrl?: string;    // Optional image URL for themed balls
   ballImageFilter?: string; // Optional CSS filter to apply to ball image
   zoom?: number;            // In-game visual zoom (0.75–1.25); physics coords stay unchanged
+  auroraShardCount?: number; // Current saved Aurora Shard progress
+  auroraBallUnlocked?: boolean; // Whether the Aurora Ball is unlocked for this user
+  onAuroraShardAward?: () => Promise<AuroraShardAwardResult | null>; // Persists one shard on drop success
 }
 
 interface ActiveBossEncounter {
@@ -125,6 +178,7 @@ interface Challenge300State {
   platformCreated: boolean;
   isOnPlatform: boolean;
   wallBroken: boolean;
+  auroraShardRollHandled: boolean;
 }
 
 // Core gameplay constants used by physics and rendering.
@@ -163,6 +217,9 @@ export default function GameCanvas({
   ballImageUrl,
   ballImageFilter,
   zoom = 1,
+  auroraShardCount = 0,
+  auroraBallUnlocked = false,
+  onAuroraShardAward,
 }: GameCanvasProps) {
   // Refs for mutable runtime state that should not trigger React re-renders.
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -192,6 +249,7 @@ export default function GameCanvas({
     platformCreated: false,
     isOnPlatform: false,
     wallBroken: false,
+    auroraShardRollHandled: false,
   });
   const breakableWallRef = useRef<BreakableWall | null>(null);
 
@@ -211,12 +269,17 @@ export default function GameCanvas({
   // Crab Rave plays hidden YouTube audio plus canvas lasers/speakers/crabs.
   const crabRaveActiveRef = useRef(false);
   const [crabRaveActive, setCrabRaveActive] = useState(false);
+  const auroraActiveRef = useRef(false);
+  const auroraShardCountRef = useRef(auroraShardCount);
+  const auroraBallUnlockedRef = useRef(auroraBallUnlocked);
+  const auroraShardNotificationRef = useRef<AuroraShardNotification | null>(null);
 
   // Callback refs to avoid game-loop recreation when props change.
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
   const onGameOverRef = useRef(onGameOver);
   const onFinishRef = useRef(onFinish);
   const onBossHudUpdateRef = useRef(onBossHudUpdate);
+  const onAuroraShardAwardRef = useRef(onAuroraShardAward);
   // Visual zoom only — Matter.js physics still uses raw canvas coordinates.
   const zoomRef = useRef(zoom);
 
@@ -229,7 +292,13 @@ export default function GameCanvas({
     onGameOverRef.current = onGameOver;
     onFinishRef.current = onFinish;
     onBossHudUpdateRef.current = onBossHudUpdate;
-  }, [onDistanceUpdate, onGameOver, onFinish, onBossHudUpdate]);
+    onAuroraShardAwardRef.current = onAuroraShardAward;
+  }, [onDistanceUpdate, onGameOver, onFinish, onBossHudUpdate, onAuroraShardAward]);
+
+  useEffect(() => {
+    auroraShardCountRef.current = Math.min(auroraShardCount, AURORA_SHARD_GOAL);
+    auroraBallUnlockedRef.current = auroraBallUnlocked;
+  }, [auroraShardCount, auroraBallUnlocked]);
 
   useEffect(() => {
     controlsRef.current = controls;
@@ -494,7 +563,40 @@ export default function GameCanvas({
       platformCreated: true,
       isOnPlatform: false,
       wallBroken: false,
+      auroraShardRollHandled: false,
     };
+  }, []);
+
+  const maybeAwardAuroraShard = useCallback(() => {
+    const challenge = challenge300Ref.current;
+    if (challenge.auroraShardRollHandled) return;
+    challenge.auroraShardRollHandled = true;
+
+    const nowMs = Date.now();
+    const auroraLive = auroraActiveRef.current || isEventTypeLive(activeEventsRef.current, 'aurora', nowMs);
+    const alreadyComplete = auroraBallUnlockedRef.current || auroraShardCountRef.current >= AURORA_SHARD_GOAL;
+    if (!auroraLive || alreadyComplete || Math.random() >= AURORA_SHARD_DROP_CHANCE) return;
+
+    // Persist the shard outside the render loop; the handled flag above prevents duplicate awards.
+    const awardAuroraShard = onAuroraShardAwardRef.current;
+    if (!awardAuroraShard) return;
+
+    awardAuroraShard()
+      .then((result) => {
+        if (!result?.awarded) return;
+
+        auroraShardCountRef.current = Math.min(result.auroraShards, AURORA_SHARD_GOAL);
+        auroraBallUnlockedRef.current = result.auroraBallUnlocked || auroraShardCountRef.current >= AURORA_SHARD_GOAL;
+        auroraShardNotificationRef.current = {
+          lines: auroraBallUnlockedRef.current
+            ? ['!Aurora Shard Journey Complete!', 'Go to shop for ball.']
+            : ['!Aurora Shard Collected!', `${auroraShardCountRef.current}/${AURORA_SHARD_GOAL}`],
+          expiresAtMs: Date.now() + AURORA_SHARD_MESSAGE_DURATION_MS,
+        };
+      })
+      .catch((error) => {
+        console.error('Failed to award Aurora Shard:', error);
+      });
   }, []);
 
   const initializeGame = useCallback(() => {
@@ -620,6 +722,7 @@ export default function GameCanvas({
       platformCreated: false,
       isOnPlatform: false,
       wallBroken: false,
+      auroraShardRollHandled: false,
     };
     breakableWallRef.current = null;
     emitBossHud(null);
@@ -772,6 +875,7 @@ export default function GameCanvas({
               Matter.World.remove(engineRef.current.world, wallBody);
               breakableWallRef.current = null;
               challenge300Ref.current.wallBroken = true;
+              maybeAwardAuroraShard();
               scrollSpeedRef.current = originalScrollSpeedRef.current || scrollSpeedForHeight(height, INITIAL_SCROLL_SECONDS);
             }
           }
@@ -1011,6 +1115,8 @@ export default function GameCanvas({
     if (tacoRainActiveRef.current) {
       // Skip the sky fill so the looping YouTube background shows through.
       ctx.clearRect(0, 0, width, height);
+    } else if (auroraActiveRef.current) {
+      drawAuroraSky(ctx, width, height, Date.now());
     } else if (crabRaveActiveRef.current) {
       // Dark party gradient while Crab Rave audio + canvas effects play.
       const grad = ctx.createLinearGradient(0, 0, width, height);
@@ -1236,6 +1342,27 @@ export default function GameCanvas({
       eventParticlesRef.current = next;
     }
 
+    const auroraNotification = auroraShardNotificationRef.current;
+    if (auroraNotification && Date.now() < auroraNotification.expiresAtMs) {
+      const boxHeight = auroraNotification.lines.length > 1 ? 82 : 56;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+      ctx.fillRect((width / 2) - 230, 50, 460, boxHeight);
+      ctx.strokeStyle = 'rgba(13, 170, 78, 0.85)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect((width / 2) - 230, 50, 460, boxHeight);
+      ctx.fillStyle = '#39ff8a';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(auroraNotification.lines[0], width / 2, 84);
+      if (auroraNotification.lines[1]) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '18px Arial';
+        ctx.fillText(auroraNotification.lines[1], width / 2, 114);
+      }
+    } else if (auroraNotification) {
+      auroraShardNotificationRef.current = null;
+    }
+
     // Optional fight banner for readability while boss HUD is visible.
     if (challenge300Ref.current.platformCreated && !challenge300Ref.current.wallBroken) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
@@ -1275,6 +1402,7 @@ export default function GameCanvas({
     getDifficultySettings,
     isBodyGroundedOnPlatforms,
     isPlaying,
+    maybeAwardAuroraShard,
     mode,
     scheduleNextFrame,
     spawnThreeHundredChallenge,
@@ -1317,6 +1445,8 @@ export default function GameCanvas({
       const crabActive = isEventTypeLive(evts, 'crab-rave', now);
       crabRaveActiveRef.current = crabActive;
       setCrabRaveActive(crabActive);
+
+      auroraActiveRef.current = isEventTypeLive(evts, 'aurora', now);
     });
     return () => unsub();
   }, []);
@@ -1337,6 +1467,8 @@ export default function GameCanvas({
         crabRaveActiveRef.current = crabActive;
         setCrabRaveActive(crabActive);
       }
+
+      auroraActiveRef.current = isEventTypeLive(activeEventsRef.current, 'aurora', now);
     }, 1000);
     return () => clearInterval(id);
   }, []);
