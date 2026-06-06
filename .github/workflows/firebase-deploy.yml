@@ -82,6 +82,10 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools@15.19.1
 
+      # Artifact upload includes compiled lib/ but not node_modules; Firebase needs deps at deploy time.
+      - name: Install Functions production dependencies
+        run: npm ci --prefix functions --omit=dev
+
       # Prefer FIREBASE_TOKEN; fall back to service account JSON via ADC.
       - name: Configure Firebase authentication
         env:
