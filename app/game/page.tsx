@@ -3,13 +3,14 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession } from '../lib/firestore';
-import { getCurrentUser, setCurrentUser } from '../lib/auth';
+import { startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall, GameSession, getUserData, awardAuroraShard } from '../lib/firestore';
+import { getCurrentUser, setCurrentUser as persistCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
 import { usePlayerSettings } from '../components/PlayerSettingsProvider';
+import { AURORA_SHARD_GOAL } from '../lib/aurora';
 
 // Stable empty platforms array prevents GameCanvas re-init loops in infinite mode.
 const EMPTY_CUSTOM_PLATFORMS: [] = [];
@@ -56,6 +57,13 @@ function Game() {
 
   // Current user (if logged in)
   const currentUserRef = useRef<User | null>(null);
+  const [currentUser, setCurrentUserState] = useState<User | null>(null);
+
+  const syncCurrentUser = useCallback((updatedUser: User) => {
+    currentUserRef.current = updatedUser;
+    setCurrentUserState(updatedUser);
+    persistCurrentUser(updatedUser);
+  }, []);
 
   // Track last distance milestone for coin calculation (every 50m = 20 coins)
   const lastCoinMilestoneRef = useRef(0);
@@ -92,11 +100,23 @@ function Game() {
     }
     
     currentUserRef.current = user;
+    setCurrentUserState(user);
     // Use user's avatar and initials for player identity
     playerIdentityRef.current = {
       avatarId: user.avatarId,
       initials: user.username,
     };
+
+    // Refresh persisted progress like Aurora Shards before the canvas starts awarding drops.
+    getUserData(user.username).then((fresh) => {
+      if (fresh) {
+        syncCurrentUser(fresh);
+        playerIdentityRef.current = {
+          avatarId: fresh.avatarId,
+          initials: fresh.username,
+        };
+      }
+    });
     
     // Start a secure game session via Cloud Function
     // This is REQUIRED for anti-cheat protection
@@ -117,7 +137,7 @@ function Game() {
     };
     
     initSession();
-  }, [router]);
+  }, [router, syncCurrentUser]);
   
   // Throttle HUD state updates to ~4 times per second instead of every frame.
   useEffect(() => {
@@ -196,8 +216,7 @@ function Game() {
       try {
         const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
         if (updatedUser) {
-          setCurrentUser(updatedUser);
-          currentUserRef.current = updatedUser;
+          syncCurrentUser(updatedUser);
         }
       } catch {
         success = false;
@@ -227,8 +246,7 @@ function Game() {
     if (!user) return;
     try {
       const updated = await useExtraBall(user.username);
-      currentUserRef.current = updated;
-      setCurrentUser(updated);
+      syncCurrentUser(updated);
       reviveSignalRef.current = true;
       setGameState('playing');
     } catch (err) {
@@ -267,8 +285,7 @@ function Game() {
       try {
         const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
         if (updatedUser) {
-          setCurrentUser(updatedUser);
-          currentUserRef.current = updatedUser;
+          syncCurrentUser(updatedUser);
           console.log(`Stats updated: +${distanceRef.current}m, +${coinsEarnedRef.current} coins`);
         }
       } catch (error) {
@@ -293,6 +310,24 @@ function Game() {
       console.error('Failed to save score:', error);
     }
   };
+
+  const handleAuroraShardAward = useCallback(async () => {
+    const user = currentUserRef.current;
+    if (!user) return null;
+    const currentShards = user.auroraShards ?? 0;
+    if (currentShards >= AURORA_SHARD_GOAL) {
+      return { shards: AURORA_SHARD_GOAL, unlocked: true, awarded: false };
+    }
+
+    // GameCanvas owns the event/drop roll; this callback only persists a successful shard.
+    const result = await awardAuroraShard(user.username);
+    syncCurrentUser(result.user);
+    return {
+      shards: result.shards,
+      unlocked: result.unlocked,
+      awarded: result.awarded,
+    };
+  }, [syncCurrentUser]);
 
   // Return to main menu
   const handleReturnToMenu = () => {
@@ -364,6 +399,8 @@ function Game() {
         ballImageUrl={ballType.imageUrl}
         ballImageFilter={ballType.imageFilter}
         zoom={settings.zoom}
+        auroraShards={currentUser?.auroraShards ?? 0}
+        onAuroraShardAward={handleAuroraShardAward}
       />
 
       {/* Keyboard Controls Handler */}

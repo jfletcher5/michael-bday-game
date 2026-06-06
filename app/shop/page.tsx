@@ -9,6 +9,7 @@ import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ba
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { User, BallType } from '../lib/types';
 import MenuBackground from '../components/MenuBackground';
+import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 
 /**
  * Shop Page
@@ -58,7 +59,7 @@ export default function ShopPage() {
       const updatedUser = await purchaseBall(user.username, ball.id, ball.price);
       setUser(updatedUser);
       setCurrentUser(updatedUser);
-      setSuccess(`Successfully purchased ${ball.name}!`);
+      setSuccess(ball.price === 0 ? `Successfully claimed ${ball.name}!` : `Successfully purchased ${ball.name}!`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to purchase';
       setError(message);
@@ -95,6 +96,7 @@ export default function ShopPage() {
     const owned = isBallOwned(ball.id, user.ownedBalls);
     const selected = user.selectedBall === ball.id;
     const canAfford = user.totalCoins >= ball.price;
+    const isFreeClaim = ball.price === 0 && !owned;
     const isProcessing = purchaseLoading === ball.id;
 
     return (
@@ -163,7 +165,7 @@ export default function ShopPage() {
         {/* Price */}
         {!owned && (
           <p className={`text-center text-sm font-semibold mb-3 ${canAfford ? 'text-yellow-600' : 'text-red-500'}`}>
-            {formatPrice(ball.price)} coins
+            {ball.price === 0 ? 'Free' : `${formatPrice(ball.price)} coins`}
           </p>
         )}
 
@@ -190,7 +192,11 @@ export default function ShopPage() {
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             } disabled:opacity-50`}
           >
-            {isProcessing ? 'Purchasing...' : canAfford ? 'Purchase' : 'Not enough'}
+            {isProcessing
+              ? (isFreeClaim ? 'Claiming...' : 'Purchasing...')
+              : canAfford
+                ? (isFreeClaim ? 'Claim Free' : 'Purchase')
+                : 'Not enough'}
           </button>
         )}
       </div>
@@ -208,6 +214,16 @@ export default function ShopPage() {
   if (!user) {
     return null; // Will redirect to login
   }
+
+  const visibleBallTypes = BALL_TYPES.filter((ball) => {
+    if (ball.id !== AURORA_BALL_ID) return true;
+    // Hide Aurora until the 12-shard journey is complete, unless it is already owned.
+    return (
+      user.ownedBalls.includes(AURORA_BALL_ID) ||
+      user.auroraBallUnlocked === true ||
+      (user.auroraShards ?? 0) >= AURORA_SHARD_GOAL
+    );
+  });
 
   return (
     <MenuBackground className="min-h-screen p-4">
@@ -260,7 +276,7 @@ export default function ShopPage() {
 
         {/* Ball Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
-          {BALL_TYPES.map(ball => renderBallCard(ball))}
+          {visibleBallTypes.map(ball => renderBallCard(ball))}
           {/* Season-exclusive balls (only shown if owned) */}
           {user && getOwnedSeasonBalls(user.ownedBalls).map(ball => (
             <div key={ball.id} className="relative">

@@ -8,6 +8,7 @@ const EVENT_META: Record<GameEventType, { label: string; emoji: string }> = {
   'taco-rain': { label: 'Taco Rain', emoji: '🌮' },
   'meteor-shower': { label: 'Meteor Shower', emoji: '☄️' },
   'crab-rave': { label: 'Crab Rave', emoji: '🦀' },
+  aurora: { label: 'Aurora Event', emoji: '🌌' },
 };
 
 /**

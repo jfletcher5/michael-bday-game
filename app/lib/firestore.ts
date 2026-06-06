@@ -20,6 +20,7 @@ import {
   onSnapshot,
   serverTimestamp,
   increment,
+  runTransaction,
   type Unsubscribe
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -27,6 +28,7 @@ import { db, functions } from './firebase';
 import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, Poll, PlayerSettings } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
+import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -271,6 +273,8 @@ export async function createUser(
       createdAt: new Date().toISOString(),
       extraBalls: 0,
       seasonData: null,
+      auroraShards: 0,
+      auroraBallUnlocked: false,
     };
     
     // Save to Firestore using username as document ID
@@ -474,6 +478,15 @@ export async function purchaseBall(
     }
     
     const userData = userDoc.data() as User;
+
+    // Aurora Ball can only enter ownership after the persisted 12-shard unlock.
+    if (
+      ballId === AURORA_BALL_ID &&
+      !userData.auroraBallUnlocked &&
+      (userData.auroraShards ?? 0) < AURORA_SHARD_GOAL
+    ) {
+      throw new Error('Collect 12 Aurora Shards to unlock the Aurora Ball');
+    }
     
     // Check if already owned
     if (userData.ownedBalls.includes(ballId)) {
@@ -485,17 +498,25 @@ export async function purchaseBall(
       throw new Error('Not enough coins');
     }
     
-    // Deduct coins and add ball to owned list
-    await updateDoc(userRef, {
+    // Deduct coins and add ball to owned list.
+    const purchaseUpdates: Record<string, unknown> = {
       totalCoins: userData.totalCoins - price,
       ownedBalls: arrayUnion(ballId),
-    });
+    };
+
+    // If an older document reached 12 shards without the flag, normalize it when claimed.
+    if (ballId === AURORA_BALL_ID) {
+      purchaseUpdates.auroraBallUnlocked = true;
+    }
+
+    await updateDoc(userRef, purchaseUpdates);
     
     // Return updated user data
     const updatedUser: User = {
       ...userData,
       totalCoins: userData.totalCoins - price,
       ownedBalls: [...userData.ownedBalls, ballId],
+      auroraBallUnlocked: ballId === AURORA_BALL_ID ? true : userData.auroraBallUnlocked,
     };
     
     console.log(`Ball purchased: ${ballId} for ${price} coins by ${username}`);
@@ -504,6 +525,74 @@ export async function purchaseBall(
     console.error('Error purchasing ball:', error);
     throw error;
   }
+}
+
+export interface AuroraShardAwardResult {
+  user: User;
+  shards: number;
+  unlocked: boolean;
+  awarded: boolean;
+}
+
+/**
+ * Award exactly one Aurora Shard with transaction safety and a hard 12-shard cap.
+ * This is used after the event-gated 300m drop roll succeeds in GameCanvas.
+ */
+export async function awardAuroraShard(username: string): Promise<AuroraShardAwardResult> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) {
+      throw new Error('User not found');
+    }
+
+    const userData = userDoc.data() as User;
+    const currentShards = Math.max(0, Math.min(userData.auroraShards ?? 0, AURORA_SHARD_GOAL));
+
+    if (currentShards >= AURORA_SHARD_GOAL) {
+      const completedUser: User = {
+        ...userData,
+        auroraShards: AURORA_SHARD_GOAL,
+        auroraBallUnlocked: true,
+      };
+
+      // Normalize old/inconsistent documents that reached 12 before the unlock flag existed.
+      if (userData.auroraShards !== AURORA_SHARD_GOAL || !userData.auroraBallUnlocked) {
+        transaction.update(userRef, {
+          auroraShards: AURORA_SHARD_GOAL,
+          auroraBallUnlocked: true,
+        });
+      }
+
+      return {
+        user: completedUser,
+        shards: AURORA_SHARD_GOAL,
+        unlocked: true,
+        awarded: false,
+      };
+    }
+
+    const nextShards = currentShards + 1;
+    const unlocked = nextShards >= AURORA_SHARD_GOAL;
+    const updatedUser: User = {
+      ...userData,
+      auroraShards: nextShards,
+      auroraBallUnlocked: unlocked || userData.auroraBallUnlocked === true,
+    };
+
+    transaction.update(userRef, {
+      auroraShards: nextShards,
+      auroraBallUnlocked: updatedUser.auroraBallUnlocked,
+    });
+
+    return {
+      user: updatedUser,
+      shards: nextShards,
+      unlocked: updatedUser.auroraBallUnlocked === true,
+      awarded: true,
+    };
+  });
 }
 
 /**

@@ -46,13 +46,15 @@ export interface User {
   isAdmin?: boolean;     // True for users allowed to access the /admin panel
   seenMessageIds?: string[]; // Global broadcast messages this user has dismissed
   playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
+  auroraShards?: number; // Aurora Event shard progress, capped at 12
+  auroraBallUnlocked?: boolean; // True after the player reaches 12 Aurora Shards
 }
 
 /**
  * Supported game-event types triggered by admins.
- * Both are visual-only effects rendered over gameplay.
+ * Most effects are visual-only; Aurora also enables shard drops at the 300m challenge.
  */
-export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave';
+export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave' | 'aurora';
 
 /**
  * A scheduled global game event broadcast to every logged-in player.
