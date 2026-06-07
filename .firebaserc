@@ -1,6 +1,14 @@
 {
   "projects": {
     "default": "michaels-web-game"
+  },
+  "targets": {
+    "michaels-web-game": {
+      "hosting": {
+        "default": [
+          "michaels-web-game"
+        ]
+      }
+    }
   }
 }
-

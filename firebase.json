@@ -11,6 +11,7 @@
     "runtime": "nodejs20"
   },
   "hosting": {
+    "site": "michaels-web-game",
     "public": "out",
     "ignore": [
       "firebase.json",

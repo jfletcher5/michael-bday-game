@@ -1,5 +1,6 @@
 # Deploy Platform Drop to Firebase Hosting on pushes to main.
-# Add secrets in GitHub → Settings → Secrets and variables → Actions.
+# Auth: FIREBASE_SERVICE_ACCOUNT (preferred) or FIREBASE_TOKEN (fallback).
+# Secrets: GitHub → Settings → Secrets and variables → Actions.
 
 name: Firebase Deploy
 
@@ -10,14 +11,18 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: firebase-deploy-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  FIREBASE_TOOLS_VERSION: '15.19.1'
+  FIREBASE_PROJECT_ID: michaels-web-game
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    # Cancel superseded builds; deploy job uses its own concurrency group.
+    concurrency:
+      group: firebase-build-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,6 +70,10 @@ jobs:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Do not cancel an in-progress deploy when a newer push lands on main.
+    concurrency:
+      group: firebase-deploy-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,43 +83,98 @@ jobs:
         with:
           name: firebase-build
 
+      - name: Verify build artifacts
+        run: |
+          if [ ! -d out ] || [ -z "$(find out -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            echo "::error::Build artifact 'out/' is missing or empty. The build job may have failed or the artifact upload was incomplete."
+            exit 1
+          fi
+          if [ ! -d functions/lib ]; then
+            echo "::error::Build artifact 'functions/lib/' is missing. Cloud Functions were not compiled."
+            exit 1
+          fi
+          echo "Verified out/ ($(find out -type f | wc -l) files) and functions/lib/"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install Firebase CLI
-        run: npm install -g firebase-tools@15.19.1
+        run: npm install -g firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
 
       # Artifact upload includes compiled lib/ but not node_modules; Firebase needs deps at deploy time.
       - name: Install Functions production dependencies
         run: npm ci --prefix functions --omit=dev
 
-      # Prefer FIREBASE_TOKEN; fall back to service account JSON via ADC.
+      # Prefer service account (no expiry); fall back to CI token.
       - name: Configure Firebase authentication
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          if [ -n "$FIREBASE_TOKEN" ]; then
-            echo "AUTH_METHOD=token" >> "$GITHUB_ENV"
-          elif [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
             SA_PATH="${RUNNER_TEMP}/firebase-sa.json"
             printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_PATH"
+            if ! python3 -m json.tool "$SA_PATH" > /dev/null 2>&1; then
+              echo "::error::FIREBASE_SERVICE_ACCOUNT is set but is not valid JSON."
+              echo "::error::Paste the entire service-account key file from Firebase Console → Project Settings → Service accounts → Generate new private key."
+              exit 1
+            fi
             echo "GOOGLE_APPLICATION_CREDENTIALS=$SA_PATH" >> "$GITHUB_ENV"
             echo "AUTH_METHOD=service_account" >> "$GITHUB_ENV"
+            echo "Using FIREBASE_SERVICE_ACCOUNT (service account JSON)."
+          elif [ -n "$FIREBASE_TOKEN" ]; then
+            echo "AUTH_METHOD=token" >> "$GITHUB_ENV"
+            echo "Using FIREBASE_TOKEN (CI token). Note: CI tokens expire; prefer FIREBASE_SERVICE_ACCOUNT for durability."
           else
-            echo "::error::Add FIREBASE_TOKEN or FIREBASE_SERVICE_ACCOUNT to GitHub repository secrets."
+            echo "::error::No Firebase deploy credentials found in repository secrets."
+            echo "::error::Preferred: set FIREBASE_SERVICE_ACCOUNT — paste the full JSON from Firebase Console → Project Settings → Service accounts → Generate new private key (does not expire)."
+            echo "::error::Fallback: set FIREBASE_TOKEN — regenerate with: npx firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} login:ci"
             exit 1
           fi
 
-      - name: Deploy hosting, rules, and functions
+      - name: Deploy Firebase targets
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: |
-          DEPLOY_ARGS=(--project michaels-web-game --non-interactive)
-          if [ "$AUTH_METHOD" = "token" ]; then
-            firebase deploy "${DEPLOY_ARGS[@]}" --token "$FIREBASE_TOKEN"
-          else
-            firebase deploy "${DEPLOY_ARGS[@]}"
-          fi
+          set -euo pipefail
+
+          DEPLOY_BASE=(--project "${{ env.FIREBASE_PROJECT_ID }}" --non-interactive)
+          MAX_ATTEMPTS=3
+          INITIAL_DELAY=30
+
+          firebase_deploy() {
+            local target="$1"
+            local attempt=1
+            local delay=$INITIAL_DELAY
+
+            while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+              echo "Deploying ${target} (attempt ${attempt}/${MAX_ATTEMPTS})..."
+              if [ "$AUTH_METHOD" = "token" ]; then
+                if firebase deploy "${DEPLOY_BASE[@]}" --only "$target" --token "$FIREBASE_TOKEN"; then
+                  echo "Successfully deployed ${target}."
+                  return 0
+                fi
+              else
+                if firebase deploy "${DEPLOY_BASE[@]}" --only "$target"; then
+                  echo "Successfully deployed ${target}."
+                  return 0
+                fi
+              fi
+
+              if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                echo "::warning::Deploy of ${target} failed on attempt ${attempt}. Retrying in ${delay}s..."
+                sleep "$delay"
+                delay=$((delay * 2))
+              fi
+              attempt=$((attempt + 1))
+            done
+
+            echo "::error::Deploy of ${target} failed after ${MAX_ATTEMPTS} attempts."
+            return 1
+          }
+
+          firebase_deploy hosting
+          firebase_deploy firestore:rules,storage
+          firebase_deploy functions
