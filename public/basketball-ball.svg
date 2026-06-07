@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Basketball</title>
+  <desc id="desc">An orange basketball with dark curved seams and a subtle glossy highlight.</desc>
+  <defs>
+    <radialGradient id="basketballGradient" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#ffd08a" />
+      <stop offset="42%" stop-color="#f97316" />
+      <stop offset="100%" stop-color="#b9470c" />
+    </radialGradient>
+    <clipPath id="ballClip">
+      <circle cx="256" cy="256" r="220" />
+    </clipPath>
+  </defs>
+
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#basketballGradient)" stroke="#171717" stroke-width="18" />
+
+  <g clip-path="url(#ballClip)" fill="none" stroke="#171717" stroke-linecap="round">
+    <path d="M256 36 V476" stroke-width="20" />
+    <path d="M36 256 H476" stroke-width="20" />
+    <path d="M95 74 C160 161 163 351 95 438" stroke-width="18" />
+    <path d="M417 74 C352 161 349 351 417 438" stroke-width="18" />
+    <path d="M74 95 C161 160 351 163 438 95" stroke-width="18" />
+    <path d="M74 417 C161 352 351 349 438 417" stroke-width="18" />
+  </g>
+
+  <circle cx="179" cy="145" r="58" fill="#ffffff" opacity="0.18" />
+  <circle cx="158" cy="124" r="20" fill="#ffffff" opacity="0.28" />
+</svg>
