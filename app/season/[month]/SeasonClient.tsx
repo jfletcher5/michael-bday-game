@@ -127,7 +127,8 @@ export default function SeasonClient() {
             <div className="relative">
               <div className="absolute inset-0 -m-2 rounded-full opacity-20" style={{ backgroundColor: config.seasonBall.color }} />
               <div
-                className="relative w-20 h-20 rounded-full flex items-center justify-center shadow-lg grayscale opacity-60"
+                // Keep future-season artwork colored so custom ball art remains recognizable while locked.
+                className="relative w-20 h-20 rounded-full flex items-center justify-center shadow-lg opacity-80"
                 style={{
                   backgroundColor: config.seasonBall.color,
                   borderColor: config.seasonBall.strokeColor,
