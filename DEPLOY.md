@@ -8,10 +8,12 @@ CI deploys automatically on every push to `main` via `.github/workflows/firebase
 
 | Component | Source | Deploy target |
 |-----------|--------|---------------|
-| Web app | `npm run build` → `out/` | Firebase Hosting |
+| Web app | `npm run build` → `out/` | Firebase Hosting (`michaels-web-game`) |
 | Firestore rules | `firestore.rules` | Firestore |
 | Storage rules | `storage.rules` | Cloud Storage |
 | Cloud Functions | `functions/` | Cloud Functions |
+
+Hosting is pinned in `firebase.json` (`hosting.site`) and `.firebaserc` (default project + hosting target) so `firebase-tools` 15.x can resolve the site without interactive setup.
 
 ## Secrets (GitHub Actions)
 
@@ -32,19 +34,45 @@ Get values from [Firebase Console → Project Settings](https://console.firebase
 
 ### Deploy credentials (required — use **one**)
 
-**Option A — CI token (simplest)**
+#### Option A — Service account JSON (recommended)
+
+Service account keys do **not** expire like CI tokens, so this is the preferred method for GitHub Actions.
+
+1. Open [Firebase Console → Project Settings → Service accounts](https://console.firebase.google.com/project/michaels-web-game/settings/serviceaccounts/adminsdk)
+2. Click **Generate new private key** and download the JSON file
+3. In Google Cloud IAM, ensure the service account has deploy roles, for example:
+   - **Firebase Admin**, or
+   - **Firebase Hosting Admin** + **Cloud Functions Admin** + **Firebase Rules Admin** + **Service Account User** (for functions)
+4. In GitHub → **Settings → Secrets and variables → Actions**, create secret **`FIREBASE_SERVICE_ACCOUNT`**
+5. Paste the **entire JSON file contents** (single line or pretty-printed — both work)
+
+The workflow validates the JSON before deploy and uses Application Default Credentials (no token refresh needed).
+
+#### Option B — CI token (fallback)
+
+CI tokens expire periodically. Use only if you cannot use a service account.
 
 ```bash
-npx firebase-tools login:ci
+npx firebase-tools@15.19.1 login:ci
 ```
 
-Add the output as `FIREBASE_TOKEN`.
+Copy the printed token into GitHub secret **`FIREBASE_TOKEN`**.
 
-**Option B — Service account JSON**
+To regenerate after expiry or auth errors:
 
-1. Firebase Console → Project Settings → Service accounts → Generate new private key
-2. Grant roles: **Firebase Admin** (or at minimum Hosting Admin + Cloud Functions Admin + Rules Admin)
-3. Paste the **entire JSON file** as `FIREBASE_SERVICE_ACCOUNT`
+```bash
+npx firebase-tools@15.19.1 login:ci
+```
+
+Update the `FIREBASE_TOKEN` secret with the new value. The workflow prefers `FIREBASE_SERVICE_ACCOUNT` when both secrets are set.
+
+### Recommended durable setup
+
+| Secret | Required | Notes |
+|--------|----------|-------|
+| All `NEXT_PUBLIC_FIREBASE_*` | Yes | Build-time config |
+| `FIREBASE_SERVICE_ACCOUNT` | **Preferred** | Long-lived deploy auth |
+| `FIREBASE_TOKEN` | Optional fallback | Regenerate with `login:ci` when it expires |
 
 ## Cursor Cloud Agent secrets
 
@@ -63,6 +91,15 @@ Workflow: `.github/workflows/firebase-deploy.yml`
 | Push to `main` | Build + deploy |
 | Pull request | Build only (no deploy) |
 | Manual (`workflow_dispatch`) | Build + deploy |
+
+Deploy behavior:
+
+- **Build** jobs cancel superseded runs on the same branch (`cancel-in-progress: true`)
+- **Deploy** jobs do **not** cancel an in-progress deploy when a newer push lands (`cancel-in-progress: false`)
+- Deploy runs **hosting**, **firestore:rules + storage**, and **functions** as separate steps (clearer partial-failure logs)
+- Each deploy step retries up to 3 times with exponential backoff (30s, 60s)
+- `firebase-tools` is pinned to `15.19.1` in the workflow
+- Verifies `out/` and `functions/lib/` exist before deploy
 
 ## Local development
 
@@ -100,7 +137,8 @@ firebase functions:secrets:set FUNCTIONS_SECRET_KEY --project michaels-web-game
 
 - [ ] Firestore database created ([console](https://console.firebase.google.com/project/michaels-web-game/firestore))
 - [ ] Web app registered in Firebase project settings
-- [ ] GitHub repository secrets configured
+- [ ] `.firebaserc` and `firebase.json` committed (project `michaels-web-game`, hosting site `michaels-web-game`)
+- [ ] GitHub repository secrets configured (`FIREBASE_SERVICE_ACCOUNT` preferred)
 - [ ] `FUNCTIONS_SECRET_KEY` set for Cloud Functions (optional but recommended for production)
 
 ## Troubleshooting
@@ -109,9 +147,28 @@ firebase functions:secrets:set FUNCTIONS_SECRET_KEY --project michaels-web-game
 
 Ensure all `NEXT_PUBLIC_FIREBASE_*` secrets are set in GitHub Actions secrets or `.env.local`.
 
-**Deploy fails: authentication**
+**Deploy fails: authentication / token expired**
 
-Add either `FIREBASE_TOKEN` or `FIREBASE_SERVICE_ACCOUNT` to GitHub repository secrets.
+- **Preferred fix:** Add or update `FIREBASE_SERVICE_ACCOUNT` with a fresh service-account JSON key (does not expire).
+- **Fallback:** Regenerate `FIREBASE_TOKEN` with `npx firebase-tools@15.19.1 login:ci` and update the GitHub secret.
+- Workflow error logs indicate which method was attempted and what to configure.
+
+**Deploy fails: `Assertion failed: resolving hosting target of a site with no site name or target name`**
+
+This means Firebase CLI could not resolve the Hosting site. Ensure the repo contains:
+
+1. **`.firebaserc`** with `"default": "michaels-web-game"` under `projects`
+2. **`firebase.json`** with `"hosting": { "site": "michaels-web-game", ... }`
+
+The default Hosting site ID matches the Firebase project ID (`michaels-web-game`). Confirm the site exists in [Firebase Hosting](https://console.firebase.google.com/project/michaels-web-game/hosting/sites).
+
+**Deploy fails: `out/` missing or empty**
+
+The build job failed or the artifact did not upload. Check the **Build** job logs for `npm run build` errors.
+
+**Deploy fails: Cloud Functions / `node_modules`**
+
+The workflow runs `npm ci --prefix functions --omit=dev` before deploy. If functions still fail, verify `functions/package-lock.json` is committed and matches `functions/package.json`.
 
 **App loads but Firestore errors**
 
