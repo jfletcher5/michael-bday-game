@@ -136,9 +136,20 @@ jobs:
 
       - name: Deploy Firebase targets
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          # Token secret only when token auth; service account uses GOOGLE_APPLICATION_CREDENTIALS from configure step.
+          FIREBASE_TOKEN: ${{ env.AUTH_METHOD == 'token' && secrets.FIREBASE_TOKEN || '' }}
         run: |
           set -euo pipefail
+
+          # Firebase CLI prefers FIREBASE_TOKEN over GOOGLE_APPLICATION_CREDENTIALS when both are present.
+          if [ "${AUTH_METHOD}" = "service_account" ]; then
+            unset FIREBASE_TOKEN
+          elif [ "${AUTH_METHOD}" = "token" ]; then
+            if [ -z "${FIREBASE_TOKEN:-}" ]; then
+              echo "::error::AUTH_METHOD=token but FIREBASE_TOKEN is not set."
+              exit 1
+            fi
+          fi
 
           DEPLOY_BASE=(--project "${{ env.FIREBASE_PROJECT_ID }}" --non-interactive)
           MAX_ATTEMPTS=3
