@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Soccer ball</title>
+  <desc id="desc">A black and white soccer ball with pentagon panels.</desc>
+  <defs>
+    <radialGradient id="whitePanel" cx="35%" cy="25%" r="75%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#f3f4f6"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="60" fill="url(#whitePanel)" stroke="#111827" stroke-width="4"/>
+  <polygon points="64,34 85,49 77,73 51,73 43,49" fill="#111827"/>
+  <polygon points="24,48 38,35 43,49 35,70 20,66" fill="#111827"/>
+  <polygon points="104,48 90,35 85,49 93,70 108,66" fill="#111827"/>
+  <polygon points="38,100 52,86 76,86 90,100 75,116 53,116" fill="#111827"/>
+  <path d="M43 49L38 35M85 49l5-14M51 73L35 70M77 73l16-3M51 73l1 13M77 73l-1 13M38 100l14-14M90 100L76 86" fill="none" stroke="#111827" stroke-width="4" stroke-linecap="round"/>
+  <path d="M23 67c6 23 22 40 46 48M105 67c-6 23-22 40-46 48" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+</svg>
