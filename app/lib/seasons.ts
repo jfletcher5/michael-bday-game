@@ -69,6 +69,18 @@ const JUNE_2026_BALL: BallType = {
   description: 'Season exclusive — June 2026',
 };
 
+const JULY_2026_BALL: BallType = {
+  id: 'july-basketball-2026',
+  name: 'Basketball',
+  price: 0,
+  color: '#f28c28',
+  strokeColor: '#1f1408',
+  isDefault: false,
+  // Local SVG artwork gives July's season ball a custom basketball look without needing uploaded art.
+  imageUrl: '/basketball-ball.svg',
+  description: 'Season exclusive — July 2026',
+};
+
 // 25-tier season pass.
 //   Free track (bottom row):     1 revive ball every 6 tiers (6, 12, 18, 24); otherwise 200 coins.
 //   Premium track (top row):     1 revive ball every 3 tiers (3, 6, 9, 12, 15, 18, 21, 24);
@@ -136,6 +148,16 @@ export const SEASON_CONFIGS: SeasonConfig[] = [
     emoji: '☯️',
     seasonBall: JUNE_2026_BALL,
     levels: STANDARD_LEVELS(JUNE_2026_BALL),
+  },
+  {
+    id: 'july-2026',
+    displayName: 'July 2026',
+    month: 7,
+    year: 2026,
+    premiumCost: 15000,
+    emoji: '🏀',
+    seasonBall: JULY_2026_BALL,
+    levels: STANDARD_LEVELS(JULY_2026_BALL),
   },
 ];
 
@@ -234,6 +256,8 @@ export function rewardEmoji(reward: SeasonReward): string {
   switch (reward.type) {
     case 'coins': return '🪙';
     case 'extraBall': return '🔮';
-    case 'ball': return '☢️';
+    case 'ball':
+      // Tie season-ball fallback icons to their config so future seasons inherit the right emoji.
+      return SEASON_CONFIGS.find((season) => season.seasonBall.id === reward.ballId)?.emoji ?? '☢️';
   }
 }
