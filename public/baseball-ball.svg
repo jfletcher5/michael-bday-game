@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Baseball ball</title>
+  <desc id="desc">A cream baseball with red curved stitching.</desc>
+  <defs>
+    <radialGradient id="baseballShell" cx="35%" cy="25%" r="75%">
+      <stop offset="0%" stop-color="#fffaf0"/>
+      <stop offset="70%" stop-color="#ffedd5"/>
+      <stop offset="100%" stop-color="#fed7aa"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="60" fill="url(#baseballShell)" stroke="#b45309" stroke-width="4"/>
+  <path d="M29 23c27 22 25 60 0 82M99 23c-27 22-25 60 0 82" fill="none" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>
+  <g fill="none" stroke="#dc2626" stroke-width="3" stroke-linecap="round">
+    <path d="M35 36l-8 6M39 49l-10 4M40 64H29M38 79l-10-4M33 92l-8-6"/>
+    <path d="M93 36l8 6M89 49l10 4M88 64h11M90 79l10-4M95 92l8-6"/>
+  </g>
+  <path d="M36 31c14-13 43-22 68 4" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.45"/>
+  <path d="M33 104c20 16 54 14 73-4" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" opacity="0.35"/>
+</svg>

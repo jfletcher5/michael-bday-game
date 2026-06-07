@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Golf ball</title>
+  <desc id="desc">A white dimpled golf ball on a green tee.</desc>
+  <defs>
+    <radialGradient id="golfShell" cx="35%" cy="25%" r="70%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#d1d5db"/>
+    </radialGradient>
+    <pattern id="dimples" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="5" cy="5" r="2.3" fill="#cbd5e1" opacity="0.85"/>
+      <circle cx="13" cy="13" r="2.1" fill="#e2e8f0" opacity="0.8"/>
+    </pattern>
+  </defs>
+  <circle cx="64" cy="64" r="61" fill="#86efac"/>
+  <path d="M47 106h34l-8 14H55z" fill="#15803d"/>
+  <ellipse cx="64" cy="105" rx="26" ry="6" fill="#166534" opacity="0.45"/>
+  <circle cx="64" cy="58" r="45" fill="url(#golfShell)" stroke="#94a3b8" stroke-width="4"/>
+  <circle cx="64" cy="58" r="41" fill="url(#dimples)" opacity="0.85"/>
+  <path d="M35 44c12-18 41-25 60-5" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.65"/>
+  <path d="M43 93c17 10 43 9 58-8" fill="none" stroke="#94a3b8" stroke-width="3" stroke-linecap="round" opacity="0.45"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">American football ball</title>
+  <desc id="desc">A brown American football with white stripes and laces.</desc>
+  <defs>
+    <radialGradient id="leather" cx="35%" cy="25%" r="75%">
+      <stop offset="0%" stop-color="#d18a4a"/>
+      <stop offset="55%" stop-color="#9a5428"/>
+      <stop offset="100%" stop-color="#5d2c16"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="61" fill="#f6c56f"/>
+  <ellipse cx="64" cy="64" rx="54" ry="34" fill="url(#leather)" stroke="#351809" stroke-width="4" transform="rotate(-18 64 64)"/>
+  <path d="M25 78c17 12 58 14 81-11" fill="none" stroke="#6f3318" stroke-width="3" stroke-linecap="round"/>
+  <path d="M23 53c22 14 62 17 84-7" fill="none" stroke="#d99b64" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  <path d="M40 50l-6 24M94 34l-6 24" fill="none" stroke="#f9fafb" stroke-width="6" stroke-linecap="round" transform="rotate(-18 64 64)"/>
+  <path d="M50 63h29" fill="none" stroke="#f9fafb" stroke-width="5" stroke-linecap="round" transform="rotate(-18 64 64)"/>
+  <path d="M55 56v14M63 55v16M71 56v14" fill="none" stroke="#f9fafb" stroke-width="4" stroke-linecap="round" transform="rotate(-18 64 64)"/>
+</svg>
