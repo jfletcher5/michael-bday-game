@@ -40,9 +40,7 @@ Service account keys do **not** expire like CI tokens, so this is the preferred 
 
 1. Open [Firebase Console → Project Settings → Service accounts](https://console.firebase.google.com/project/michaels-web-game/settings/serviceaccounts/adminsdk)
 2. Click **Generate new private key** and download the JSON file
-3. In Google Cloud IAM, ensure the service account has deploy roles, for example:
-   - **Firebase Admin**, or
-   - **Firebase Hosting Admin** + **Cloud Functions Admin** + **Firebase Rules Admin** + **Service Account User** (for functions)
+3. Grant IAM on the service account (see **[IAM for `FIREBASE_SERVICE_ACCOUNT`](#iam-for-firebase_service_account)** below).
 4. In GitHub → **Settings → Secrets and variables → Actions**, create secret **`FIREBASE_SERVICE_ACCOUNT`**
 5. Paste the **entire JSON file contents** (single line or pretty-printed — both work)
 
@@ -73,6 +71,78 @@ Update the `FIREBASE_TOKEN` secret with the new value. The workflow prefers `FIR
 | All `NEXT_PUBLIC_FIREBASE_*` | Yes | Build-time config |
 | `FIREBASE_SERVICE_ACCOUNT` | **Preferred** | Long-lived deploy auth |
 | `FIREBASE_TOKEN` | Optional fallback | Regenerate with `login:ci` when it expires |
+
+
+## IAM for `FIREBASE_SERVICE_ACCOUNT`
+
+Use the **same** Google service account whose JSON is stored in GitHub secret `FIREBASE_SERVICE_ACCOUNT`. Identify it from the JSON field `client_email` (often `firebase-adminsdk-…@michaels-web-game.iam.gserviceaccount.com`).
+
+Open [IAM → Grant access](https://console.cloud.google.com/iam-admin/iam?project=michaels-web-game) for project **`michaels-web-game`**.
+
+### Recommended (one project-level role)
+
+| Role | Purpose |
+|------|---------|
+| [Firebase Admin](https://console.cloud.google.com/iam-admin/iam?project=michaels-web-game) (`roles/firebase.admin`) | Hosting, Firestore/Storage rules, Functions deploy, and most Firebase APIs used by CI |
+
+Then add the **resource-level** binding below (required for Cloud Functions even with Firebase Admin).
+
+### Minimal role set (instead of Firebase Admin)
+
+| Role | ID | Needed for |
+|------|-----|------------|
+| Firebase Hosting Admin | `roles/firebasehosting.admin` | `firebase deploy --only hosting` |
+| Firebase Rules Admin | `roles/firebaserules.admin` | Firestore + Storage rules |
+| Cloud Functions Admin | `roles/cloudfunctions.admin` | Upload/update functions |
+| Service Usage Admin *or* enable APIs manually | `roles/serviceusage.serviceUsageAdmin` | Let CLI enable required Google APIs (optional if APIs already on) |
+
+Historical CI errors when roles were missing:
+
+- `firebasestorage.defaultBucket.get` denied → fixed by **Firebase Admin** or **Firebase Rules Admin** + Storage/Firebase Storage permissions; ensure [Firebase Storage](https://console.firebase.google.com/project/michaels-web-game/storage) is set up for the project.
+
+### Required: Service Account User on the default runtime SA (ActAs)
+
+Cloud Functions deploy must **act as** the App Engine default service account:
+
+| Principal | Role on member | Resource |
+|-----------|----------------|----------|
+| Your deploy SA (`client_email` from the JSON key) | **Service Account User** (`roles/iam.serviceAccountUser`) | Service account **`michaels-web-game@appspot.gserviceaccount.com`** |
+
+In Console: [IAM](https://console.cloud.google.com/iam-admin/iam?project=michaels-web-game) → find **`michaels-web-game@appspot.gserviceaccount.com`** → **Permissions** tab → **Grant access** → add the deploy service account with role **Service Account User**.
+
+CLI (replace `DEPLOY_SA@…` with your key’s `client_email`):
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  michaels-web-game@appspot.gserviceaccount.com \
+  --project=michaels-web-game \
+  --member="serviceAccount:DEPLOY_SA@michaels-web-game.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+If CI logs show `Missing permissions required for functions deploy` / `iam.serviceAccounts.ActAs`, this binding is missing or on the wrong SA.
+
+### Cloud Functions: billing API and Blaze plan
+
+After ActAs is fixed, deploy may fail with:
+
+`cloudbilling.googleapis.com … Cloud Billing API has not been used … or it is disabled`
+
+Do all of the following:
+
+1. **Blaze (pay-as-you-go)** — Cloud Functions require billing: [Firebase usage and billing](https://console.firebase.google.com/project/michaels-web-game/usage/details).
+2. **Enable Cloud Billing API** on the project: [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com?project=michaels-web-game) → **Enable**.
+3. Optional if you still get `billingInfo` 403 after enabling the API: grant the deploy SA [Project Viewer](https://console.cloud.google.com/iam-admin/iam?project=michaels-web-game) (`roles/viewer`) or **Billing Account Viewer** on the linked billing account (Console → Billing → Account management → Permissions).
+
+Wait 2–5 minutes after enabling APIs, then re-run [Firebase Deploy workflow](https://github.com/jfletcher5/michael-bday-game/actions/workflows/firebase-deploy.yml).
+
+### Quick IAM checklist
+
+- [ ] Deploy SA has **Firebase Admin** (or minimal roles above) on project `michaels-web-game`
+- [ ] Deploy SA has **Service Account User** on `michaels-web-game@appspot.gserviceaccount.com`
+- [ ] Project on **Blaze** with billing linked
+- [ ] **Cloud Billing API** enabled for `michaels-web-game`
+- [ ] GitHub secret **`FIREBASE_SERVICE_ACCOUNT`** = full JSON for that deploy SA
 
 ## Cursor Cloud Agent secrets
 
@@ -169,6 +239,18 @@ The build job failed or the artifact did not upload. Check the **Build** job log
 **Deploy fails: Cloud Functions / `node_modules`**
 
 The workflow runs `npm ci --prefix functions --omit=dev` before deploy. If functions still fail, verify `functions/package-lock.json` is committed and matches `functions/package.json`.
+
+**Deploy fails: `iam.serviceAccounts.ActAs` / Service Account User**
+
+Grant **Service Account User** on `michaels-web-game@appspot.gserviceaccount.com` to the deploy service account. See [IAM for `FIREBASE_SERVICE_ACCOUNT`](#iam-for-firebase_service_account).
+
+**Deploy fails: Cloud Billing API disabled (`cloudbilling.googleapis.com`)**
+
+Enable the API and ensure the Firebase project is on Blaze. See [Cloud Functions: billing](#cloud-functions-billing-api-and-blaze-plan).
+
+**Deploy fails: `firebasestorage.defaultBucket.get` denied**
+
+Usually insufficient rules/storage IAM; use **Firebase Admin** or **Firebase Rules Admin** and confirm Storage is initialized in Firebase Console.
 
 **App loads but Firestore errors**
 
