@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bane Of Thorns</title>
+  <desc id="desc">A green thorn-themed ball with spike accents.</desc>
+  <defs>
+    <radialGradient id="thornGradient" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#a5d6a7" />
+      <stop offset="45%" stop-color="#43a047" />
+      <stop offset="100%" stop-color="#1b5e20" />
+    </radialGradient>
+  </defs>
+
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#thornGradient)" stroke="#1b5e20" stroke-width="18" />
+
+  <g fill="#1b5e20" stroke="#0d3311" stroke-width="4">
+    <polygon points="256,36 268,88 244,88" />
+    <polygon points="256,476 268,424 244,424" />
+    <polygon points="36,256 88,268 88,244" />
+    <polygon points="476,256 424,268 424,244" />
+    <polygon points="95,95 135,135 115,155 75,115" />
+    <polygon points="417,95 377,135 397,155 437,115" />
+    <polygon points="95,417 135,377 115,357 75,397" />
+    <polygon points="417,417 377,377 397,357 437,397" />
+    <polygon points="256,120 270,170 242,170" />
+    <polygon points="256,392 270,342 242,342" />
+    <polygon points="120,256 170,270 170,242" />
+    <polygon points="392,256 342,270 342,242" />
+  </g>
+
+  <circle cx="179" cy="145" r="58" fill="#ffffff" opacity="0.2" />
+  <circle cx="158" cy="124" r="20" fill="#ffffff" opacity="0.28" />
+</svg>
