@@ -4,6 +4,7 @@
 
 import { BallType } from './types';
 import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
+import { getProPassBallById } from './proPass';
 import { AURORA_BALL_ID } from './aurora';
 
 /**
@@ -163,7 +164,12 @@ export const BALL_TYPES: BallType[] = [
  * @returns The BallType or the default ball if not found
  */
 export function getBallTypeById(ballId: string): BallType {
-  return BALL_TYPES.find(b => b.id === ballId) || getSeasonBallById(ballId) || BALL_TYPES[0];
+  return (
+    BALL_TYPES.find((b) => b.id === ballId) ||
+    getSeasonBallById(ballId) ||
+    getProPassBallById(ballId) ||
+    BALL_TYPES[0]
+  );
 }
 
 /**

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bane Of Dead</title>
+  <desc id="desc">A red death-themed ball with skull accents.</desc>
+  <defs>
+    <radialGradient id="deadGradient" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#ff8a80" />
+      <stop offset="45%" stop-color="#e53935" />
+      <stop offset="100%" stop-color="#7f0000" />
+    </radialGradient>
+  </defs>
+
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#deadGradient)" stroke="#7f0000" stroke-width="18" />
+
+  <g fill="#fff5f5" stroke="#4a0000" stroke-width="6">
+    <ellipse cx="256" cy="270" rx="88" ry="72" fill="#fff8f8" />
+    <circle cx="220" cy="255" r="22" fill="#1a1a1a" stroke="none" />
+    <circle cx="292" cy="255" r="22" fill="#1a1a1a" stroke="none" />
+    <path d="M230 310 Q256 335 282 310" fill="none" stroke-width="8" stroke-linecap="round" />
+    <rect x="246" y="188" width="20" height="36" rx="6" fill="#fff8f8" />
+    <rect x="206" y="210" width="36" height="16" rx="8" fill="#fff8f8" transform="rotate(-35 224 218)" />
+    <rect x="270" y="210" width="36" height="16" rx="8" fill="#fff8f8" transform="rotate(35 288 218)" />
+  </g>
+
+  <circle cx="179" cy="145" r="58" fill="#ffffff" opacity="0.18" />
+</svg>

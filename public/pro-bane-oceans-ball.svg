@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bane Of Oceans</title>
+  <desc id="desc">A blue ocean-themed ball with wave accents.</desc>
+  <defs>
+    <radialGradient id="oceanGradient" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#90caf9" />
+      <stop offset="45%" stop-color="#1e88e5" />
+      <stop offset="100%" stop-color="#0d47a1" />
+    </radialGradient>
+    <clipPath id="oceanClip">
+      <circle cx="256" cy="256" r="220" />
+    </clipPath>
+  </defs>
+
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#oceanGradient)" stroke="#0d47a1" stroke-width="18" />
+
+  <g clip-path="url(#oceanClip)" fill="none" stroke="#e3f2fd" stroke-linecap="round">
+    <path d="M40 300 C120 250 200 350 280 300 S440 250 472 300" stroke-width="16" opacity="0.9" />
+    <path d="M30 360 C130 310 210 410 300 360 S430 310 482 360" stroke-width="12" opacity="0.7" />
+    <path d="M50 240 C150 200 230 280 330 240 S430 200 462 240" stroke-width="10" opacity="0.55" />
+  </g>
+
+  <circle cx="179" cy="145" r="58" fill="#ffffff" opacity="0.2" />
+  <circle cx="158" cy="124" r="20" fill="#ffffff" opacity="0.3" />
+</svg>

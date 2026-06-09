@@ -20,6 +20,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false; // Only Admin SDK seed scripts can write
     }
+
+    // Pro Pass reward definitions: clients can read, seed/admin tools write
+    match /proPassConfigs/{passId} {
+      allow read: if true;
+      allow write: if false; // Only Admin SDK seed scripts can write
+    }
     
     // Allow read access to levels
     match /levels/{level} {

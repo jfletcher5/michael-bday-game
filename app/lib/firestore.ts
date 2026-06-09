@@ -25,9 +25,11 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings } from './types';
+import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
+import { getProPassConfig, isProPassActive } from './proPass';
+import type { ProPassConfig } from './proPass';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
 
 // Collection name in Firestore
@@ -240,6 +242,7 @@ const USERS_COLLECTION = 'users';
 
 // Collection name for season pass reward definitions
 const SEASON_CONFIGS_COLLECTION = 'seasonConfigs';
+const PRO_PASS_CONFIGS_COLLECTION = 'proPassConfigs';
 
 /**
  * Create a new user account
@@ -273,6 +276,7 @@ export async function createUser(
       createdAt: new Date().toISOString(),
       extraBalls: 0,
       seasonData: null,
+      proPassData: null,
     };
     
     // Save to Firestore using username as document ID
@@ -430,11 +434,43 @@ export async function updateUserStats(
       };
     }
 
+    // Pro Pass meters accrue independently while the 4-month pass window is active.
+    const activeProPass = getProPassConfig();
+    let proPassData: ProPassData;
+    if (isProPassActive()) {
+      if (currentData.proPassData && currentData.proPassData.passId === activeProPass.id) {
+        proPassData = {
+          ...currentData.proPassData,
+          meters: currentData.proPassData.meters + metersEarned,
+        };
+      } else {
+        proPassData = {
+          passId: activeProPass.id,
+          meters: metersEarned,
+          premiumUnlocked: false,
+          claimedFree: [],
+          claimedPremium: [],
+        };
+      }
+    } else if (currentData.proPassData && currentData.proPassData.passId === activeProPass.id) {
+      // Pass ended — keep existing progress readable but do not add meters.
+      proPassData = currentData.proPassData;
+    } else {
+      proPassData = currentData.proPassData ?? {
+        passId: activeProPass.id,
+        meters: 0,
+        premiumUnlocked: false,
+        claimedFree: [],
+        claimedPremium: [],
+      };
+    }
+
     // Update stats
     await updateDoc(userRef, {
       totalMeters: currentData.totalMeters + metersEarned,
       totalCoins: currentData.totalCoins + coinsEarned,
       seasonData,
+      proPassData,
     });
 
     // Return updated user data
@@ -444,6 +480,7 @@ export async function updateUserStats(
       totalCoins: currentData.totalCoins + coinsEarned,
       extraBalls: currentData.extraBalls ?? 0,
       seasonData,
+      proPassData,
     };
 
     console.log(`Stats updated for ${username}: +${metersEarned}m, +${coinsEarned} coins`);
@@ -784,6 +821,151 @@ export async function purchaseSeasonPremium(
     totalCoins: userData.totalCoins - premiumCost,
     extraBalls: userData.extraBalls ?? 0,
     seasonData: sd,
+  };
+}
+
+// ============================================
+// PRO PASS FUNCTIONS
+// ============================================
+
+/**
+ * Fetch a Pro Pass config from Firestore, falling back to the local definition.
+ */
+export async function getProPassConfigFromFirestore(passId: string): Promise<ProPassConfig | null> {
+  try {
+    const passDoc = await getDoc(doc(db, PRO_PASS_CONFIGS_COLLECTION, passId));
+    if (!passDoc.exists()) return null;
+
+    const data = passDoc.data() as ProPassConfig;
+    return {
+      ...data,
+      id: data.id ?? passDoc.id,
+    };
+  } catch (error) {
+    console.error('Error fetching Pro Pass config from Firestore:', error);
+    return null;
+  }
+}
+
+export async function getProPassConfigWithFallback(passId?: string): Promise<ProPassConfig> {
+  const localConfig = getProPassConfig();
+  const targetId = passId ?? localConfig.id;
+  const firestoreConfig = await getProPassConfigFromFirestore(targetId);
+  return firestoreConfig ?? (targetId === localConfig.id ? localConfig : localConfig);
+}
+
+/**
+ * Claim a Pro Pass reward (free or premium track).
+ * Claims stay available after the pass ends for tiers already earned.
+ */
+export async function claimProPassReward(
+  username: string,
+  passId: string,
+  track: 'free' | 'premium',
+  levelIndex: number
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = userDoc.data() as User;
+  const pd = userData.proPassData;
+  if (!pd || pd.passId !== passId) throw new Error('Pro Pass data mismatch');
+
+  const config = await getProPassConfigWithFallback(passId);
+  if (levelIndex < 0 || levelIndex >= config.levels.length) throw new Error('Invalid level');
+
+  const level = config.levels[levelIndex];
+  if (pd.meters < level.meterThreshold) throw new Error('Threshold not reached');
+
+  const claimedArray = track === 'free' ? pd.claimedFree : pd.claimedPremium;
+  if (claimedArray.includes(levelIndex)) throw new Error('Already claimed');
+  if (track === 'premium' && !pd.premiumUnlocked) throw new Error('Premium not unlocked');
+
+  const reward = track === 'free' ? level.freeReward : level.premiumReward;
+
+  const updates: Record<string, unknown> = {};
+  const updatedUser: User = { ...userData, extraBalls: userData.extraBalls ?? 0 };
+
+  const newClaimed = [...claimedArray, levelIndex];
+  if (track === 'free') {
+    updates['proPassData.claimedFree'] = newClaimed;
+    updatedUser.proPassData = { ...pd, claimedFree: newClaimed };
+  } else {
+    updates['proPassData.claimedPremium'] = newClaimed;
+    updatedUser.proPassData = { ...pd, claimedPremium: newClaimed };
+  }
+
+  switch (reward.type) {
+    case 'coins':
+      updates.totalCoins = userData.totalCoins + (reward.amount ?? 0);
+      updatedUser.totalCoins = updates.totalCoins as number;
+      break;
+    case 'extraBall':
+      updates.extraBalls = (userData.extraBalls ?? 0) + (reward.amount ?? 1);
+      updatedUser.extraBalls = updates.extraBalls as number;
+      break;
+    case 'ball':
+      if (reward.ballId && !userData.ownedBalls.includes(reward.ballId)) {
+        updates.ownedBalls = arrayUnion(reward.ballId);
+        updatedUser.ownedBalls = [...userData.ownedBalls, reward.ballId];
+      }
+      break;
+  }
+
+  await updateDoc(userRef, updates);
+  return updatedUser;
+}
+
+/**
+ * Purchase the Pro Pass premium track for 50,000 coins.
+ */
+export async function purchaseProPassPremium(
+  username: string,
+  passId: string,
+  cost: number
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  if (!isProPassActive()) throw new Error('Pro Pass is not active');
+
+  const config = await getProPassConfigWithFallback(passId);
+  if (passId !== config.id) throw new Error('Unknown Pro Pass');
+
+  const userData = userDoc.data() as User;
+  const premiumCost = config.premiumCost;
+  if (cost !== premiumCost) {
+    console.warn(`Ignoring stale Pro Pass premium cost ${cost}; using configured cost ${premiumCost}`);
+  }
+  if (userData.totalCoins < premiumCost) throw new Error('Not enough coins');
+
+  let pd = userData.proPassData;
+
+  // Initialize Pro Pass data if needed (player can buy premium before earning meters).
+  if (!pd || pd.passId !== config.id) {
+    pd = {
+      passId: config.id,
+      meters: 0,
+      premiumUnlocked: true,
+      claimedFree: [],
+      claimedPremium: [],
+    };
+  } else {
+    pd = { ...pd, premiumUnlocked: true };
+  }
+
+  await updateDoc(userRef, {
+    totalCoins: userData.totalCoins - premiumCost,
+    proPassData: pd,
+  });
+
+  return {
+    ...userData,
+    totalCoins: userData.totalCoins - premiumCost,
+    extraBalls: userData.extraBalls ?? 0,
+    proPassData: pd,
   };
 }
 

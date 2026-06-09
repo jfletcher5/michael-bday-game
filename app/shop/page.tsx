@@ -7,6 +7,7 @@ import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { purchaseBall, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { getOwnedSeasonBalls } from '../lib/seasons';
+import { getOwnedProPassBalls } from '../lib/proPass';
 import { User, BallType, ShopOffer } from '../lib/types';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 import MenuBackground from '../components/MenuBackground';
@@ -440,6 +441,15 @@ export default function ShopPage() {
             <div key={ball.id} className="relative">
               <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full z-10 whitespace-nowrap">
                 SEASON EXCLUSIVE
+              </div>
+              {renderBallCard(ball)}
+            </div>
+          ))}
+          {/* Pro Pass exclusive balls (only shown if owned) */}
+          {user && getOwnedProPassBalls(user.ownedBalls).map(ball => (
+            <div key={ball.id} className="relative">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full z-10 whitespace-nowrap">
+                PRO PASS EXCLUSIVE
               </div>
               {renderBallCard(ball)}
             </div>
