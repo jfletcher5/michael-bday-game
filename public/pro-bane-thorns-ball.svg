@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bane Of Thorns</title>
+  <desc id="desc">A green Pro Pass ball wrapped in thorny vines.</desc>
+  <defs>
+    <radialGradient id="thornsGradient" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#86efac" />
+      <stop offset="42%" stop-color="#16a34a" />
+      <stop offset="100%" stop-color="#14532d" />
+    </radialGradient>
+    <clipPath id="thornsClip">
+      <circle cx="256" cy="256" r="220" />
+    </clipPath>
+  </defs>
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#thornsGradient)" stroke="#14532d" stroke-width="18" />
+  <g clip-path="url(#thornsClip)" fill="none" stroke="#052e16" stroke-linecap="round">
+    <path d="M120 180 C180 220 220 300 256 360 C292 300 332 220 392 180" stroke-width="12" />
+    <path d="M96 256 C156 236 196 276 256 296 C316 276 356 236 416 256" stroke-width="10" />
+    <path d="M150 130 L162 104 M362 130 L350 104 M150 382 L162 408 M362 382 L350 408" stroke-width="12" />
+    <path d="M256 92 L256 68 M196 108 L184 86 M316 108 L328 86" stroke-width="10" />
+  </g>
+  <circle cx="180" cy="148" r="54" fill="#ffffff" opacity="0.2" />
+</svg>
