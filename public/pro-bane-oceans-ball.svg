@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Bane Of Oceans</title>
+  <desc id="desc">A deep blue Pro Pass ball with wave-like accents.</desc>
+  <defs>
+    <radialGradient id="oceansGradient" cx="32%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="45%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </radialGradient>
+    <clipPath id="oceansClip">
+      <circle cx="256" cy="256" r="220" />
+    </clipPath>
+  </defs>
+  <circle cx="256" cy="278" r="214" fill="#000000" opacity="0.14" />
+  <circle cx="256" cy="256" r="220" fill="url(#oceansGradient)" stroke="#1e3a8a" stroke-width="18" />
+  <g clip-path="url(#oceansClip)" fill="none" stroke="#dbeafe" stroke-linecap="round" opacity="0.85">
+    <path d="M48 190 C120 150 200 230 280 190 S440 150 464 190" stroke-width="16" />
+    <path d="M48 256 C130 216 210 296 290 256 S430 216 464 256" stroke-width="14" />
+    <path d="M48 322 C120 282 200 362 280 322 S440 282 464 322" stroke-width="16" />
+  </g>
+  <circle cx="176" cy="148" r="54" fill="#ffffff" opacity="0.2" />
+</svg>

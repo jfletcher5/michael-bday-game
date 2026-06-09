@@ -42,6 +42,7 @@ export interface User {
   createdAt: string;     // ISO date string when account was created
   extraBalls: number;    // Count of extra-ball revival items
   seasonData: SeasonData | null; // Current season progress (null if never interacted)
+  proPassData?: ProPassData | null; // Parallel 4-month Pro Pass progress
   verified?: boolean;    // True for users granted a verified badge in the leaderboard
   isAdmin?: boolean;     // True for users allowed to access the /admin panel
   seenMessageIds?: string[]; // Global broadcast messages this user has dismissed
@@ -146,6 +147,17 @@ export interface SeasonData {
   premiumUnlocked: boolean;  // whether player paid for premium track
   claimedFree: number[];     // level indices (0-4) already claimed on free track
   claimedPremium: number[];  // level indices (0-4) already claimed on premium track
+}
+
+/**
+ * Pro Pass progress stored on the user document (June–September 2026 window).
+ */
+export interface ProPassData {
+  passId: string;              // e.g. "pro-pass-june-sept-2026"
+  meters: number;              // meters accumulated during this Pro Pass
+  premiumUnlocked: boolean;    // whether player paid 50,000 coins for premium track
+  claimedFree: number[];       // level indices (0–99) claimed on free track
+  claimedPremium: number[];    // level indices (0–99) claimed on premium track
 }
 
 /**
