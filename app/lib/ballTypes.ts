@@ -4,7 +4,7 @@
 
 import { BallType } from './types';
 import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
-import { getProPassBallById } from './proPass';
+import { getProPassBallById, PRO_PASS_BALLS } from './proPass';
 import { AURORA_BALL_ID } from './aurora';
 
 /**
@@ -182,16 +182,19 @@ export function getDefaultBallType(): BallType {
 
 /**
  * Balls that admins can place in limited-time shop offers.
- * Season balls are included here even if players normally earn them elsewhere.
+ * Season and Pro Pass balls are included even if players normally earn them elsewhere.
  */
 export function getOfferableBallTypes(): BallType[] {
   const seen = new Set<string>();
-  return [...BALL_TYPES, ...SEASON_CONFIGS.map((season) => season.seasonBall)]
-    .filter((ball) => {
-      if (ball.isDefault || seen.has(ball.id)) return false;
-      seen.add(ball.id);
-      return true;
-    });
+  return [
+    ...BALL_TYPES,
+    ...SEASON_CONFIGS.map((season) => season.seasonBall),
+    ...PRO_PASS_BALLS,
+  ].filter((ball) => {
+    if (ball.isDefault || seen.has(ball.id)) return false;
+    seen.add(ball.id);
+    return true;
+  });
 }
 
 /**

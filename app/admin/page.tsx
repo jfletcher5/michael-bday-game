@@ -388,17 +388,39 @@ function OffersTab({ admin }: { admin: User }) {
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Offer item</label>
-            <select
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+            {/* Scrollable picker so admins can reach every restockable ball, including Pro Pass exclusives. */}
+            <div
+              className="w-full border border-gray-300 rounded-lg bg-white overflow-y-auto"
+              style={{ maxHeight: 'min(320px, 50vh)' }}
+              role="listbox"
+              aria-label="Select ball to restock"
             >
-              {OFFERABLE_BALLS.map((ball) => (
-                <option key={ball.id} value={ball.id}>
-                  {ball.name} — normal {formatPrice(ball.price)} coins
-                </option>
-              ))}
-            </select>
+              {OFFERABLE_BALLS.map((ball) => {
+                const isSelected = ball.id === itemId;
+                return (
+                  <button
+                    key={ball.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => setItemId(ball.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 text-left text-sm transition border-b border-gray-100 last:border-b-0 ${
+                      isSelected
+                        ? 'bg-purple-50 ring-2 ring-inset ring-purple-400'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <MiniBallPreview ball={ball} />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-gray-800 truncate">{ball.name}</div>
+                      <div className="text-xs text-gray-500">
+                        Normal price: {formatPrice(ball.price)} coins
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {selectedBall && (
