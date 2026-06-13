@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { getScoresFromFirestore, getVerifiedUsernames } from '../lib/firestore';
+import { getScoresFromFirestore, getVerifiedUsernames, getVipUsernames } from '../lib/firestore';
 import { Score } from '../lib/types';
 import { getAvatarUrl } from '../lib/avatars';
 import VerifiedBadge from '../components/VerifiedBadge';
@@ -20,6 +20,7 @@ export default function Leaderboard() {
   const router = useRouter();
   const [scores, setScores] = useState<Score[]>([]);
   const [verifiedSet, setVerifiedSet] = useState<Set<string>>(new Set());
+  const [vipSet, setVipSet] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ export default function Leaderboard() {
   useEffect(() => {
     loadScores();
     getVerifiedUsernames().then(setVerifiedSet);
+    getVipUsernames().then(setVipSet);
   }, []);
 
   const handleBackToMenu = () => {
@@ -112,12 +114,13 @@ export default function Leaderboard() {
                 <tbody>
                   {scores.map((score, index) => {
                     const rank = index + 1;
+                    const isVip = score.isVip === true || vipSet.has(score.initials.toUpperCase());
                     return (
                       <tr
                         key={index}
                         className={`border-b border-gray-100 hover:bg-gray-50 transition ${
                           rank === 1 ? 'bg-yellow-50' : ''
-                        }`}
+                        } ${isVip ? 'border-2 border-yellow-400' : ''}`}
                       >
                         <td className="py-3 sm:py-4 px-2 sm:px-3">
                           <span className={`font-bold ${getRankStyle(rank)}`}>
@@ -137,6 +140,11 @@ export default function Leaderboard() {
                             <span className="font-bold text-gray-800 text-sm sm:text-lg tracking-wide">
                               {score.initials}
                             </span>
+                            {isVip && (
+                              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wide text-yellow-700 bg-yellow-100 border border-yellow-400 px-1.5 py-0.5 rounded">
+                                VIP
+                              </span>
+                            )}
                             {verifiedSet.has(score.initials.toUpperCase()) && (
                               <VerifiedBadge size={18} />
                             )}

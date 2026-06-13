@@ -4,8 +4,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
-import { purchaseBall, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
+import { purchaseBall, purchaseGamepass, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
+import { GAMEPASSES, formatGems, VIP_BALL_ID, type GamepassId } from '../lib/gamepasses';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { getOwnedProPassBalls } from '../lib/proPass';
 import { User, BallType, ShopOffer } from '../lib/types';
@@ -78,6 +79,29 @@ export default function ShopPage() {
     () => shopOffers.filter((offer) => offer.startAtMs <= nowMs && offer.endsAtMs > nowMs),
     [shopOffers, nowMs],
   );
+  // Handle gamepass purchase with gems
+  const handleGamepassPurchase = async (passId: GamepassId) => {
+    if (!user) return;
+
+    const pass = GAMEPASSES.find((item) => item.id === passId);
+    if (!pass) return;
+
+    setError(null);
+    setSuccess(null);
+    setPurchaseLoading(`gamepass:${passId}`);
+
+    try {
+      const updatedUser = await purchaseGamepass(user.username, passId);
+      setUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setSuccess(`Successfully purchased ${pass.name} gamepass!`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to purchase gamepass';
+      setError(message);
+    } finally {
+      setPurchaseLoading(null);
+    }
+  };
 
   // Handle ball purchase
   const handlePurchase = async (ball: BallType) => {
@@ -260,6 +284,77 @@ export default function ShopPage() {
     );
   };
 
+  const renderGamepassCard = (pass: (typeof GAMEPASSES)[number]) => {
+    if (!user) return null;
+
+    const owned = pass.id === 'vip'
+      ? user.gamepasses?.vip === true
+      : user.gamepasses?.doubleCash === true;
+    const gemBalance = user.totalGems ?? 0;
+    const canAfford = gemBalance >= pass.gemPrice;
+    const isProcessing = purchaseLoading === `gamepass:${pass.id}`;
+
+    return (
+      <div
+        key={pass.id}
+        className={`relative bg-white rounded-xl shadow-md p-4 border-2 transition-all flex flex-col h-full ${
+          owned ? 'border-green-300' : 'border-cyan-200'
+        }`}
+      >
+        {owned && (
+          <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+            OWNED
+          </div>
+        )}
+
+        <div className="flex justify-center mb-3">
+          <div className="w-20 h-20 rounded-xl shadow-lg flex items-center justify-center overflow-hidden bg-gray-900 border-2 border-cyan-300">
+            <Image
+              src={pass.imageUrl}
+              alt={pass.name}
+              width={80}
+              height={80}
+              className="w-full h-full object-cover"
+              unoptimized
+            />
+          </div>
+        </div>
+
+        <h3 className="text-center font-bold text-gray-800 mb-1">{pass.name}</h3>
+        <p className="text-center text-xs text-gray-500 mb-2 line-clamp-3">{pass.description}</p>
+
+        <div className="flex-grow" />
+
+        {!owned && (
+          <p className={`text-center text-sm font-semibold mb-3 ${canAfford ? 'text-cyan-600' : 'text-red-500'}`}>
+            {formatGems(pass.gemPrice)} gems
+          </p>
+        )}
+
+        {owned ? (
+          <button
+            disabled
+            className="w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm bg-green-100 text-green-700 cursor-default mt-auto"
+          >
+            Owned
+          </button>
+        ) : (
+          <button
+            onClick={() => handleGamepassPurchase(pass.id)}
+            disabled={!canAfford || isProcessing}
+            className={`w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm transition-all mt-auto ${
+              canAfford
+                ? 'bg-cyan-500 text-white hover:bg-cyan-600'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            } disabled:opacity-50`}
+          >
+            {isProcessing ? 'Purchasing...' : canAfford ? 'Buy Gamepass' : 'Not enough gems'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderOfferCard = (offer: ShopOffer) => {
     if (!user) return null;
 
@@ -379,6 +474,8 @@ export default function ShopPage() {
   const auroraShards = Math.min(user.auroraShards ?? 0, AURORA_SHARD_GOAL);
   const auroraUnlocked = user.auroraBallUnlocked === true || auroraShards >= AURORA_SHARD_GOAL;
   const visibleBallTypes = BALL_TYPES.filter((ball) => {
+    // VIP ball is only granted via gamepass — never listed in the coin shop grid.
+    if (ball.id === VIP_BALL_ID) return user.ownedBalls.includes(VIP_BALL_ID);
     if (ball.id !== AURORA_BALL_ID) return true;
     // Keep Aurora Ball hidden until earned, but never hide it after ownership.
     return auroraUnlocked || user.ownedBalls.includes(AURORA_BALL_ID);
@@ -397,10 +494,16 @@ export default function ShopPage() {
             &larr; Back
           </button>
 
-          {/* Coin Balance */}
-          <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
-            <span className="text-yellow-300 text-lg sm:text-xl">🪙</span>
-            <span>{formatPrice(user.totalCoins)} coins</span>
+          {/* Coin + gem balances */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
+              <span className="text-yellow-300 text-lg sm:text-xl">🪙</span>
+              <span>{formatPrice(user.totalCoins)} coins</span>
+            </div>
+            <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
+              <span className="text-cyan-200 text-lg sm:text-xl">💎</span>
+              <span>{formatGems(user.totalGems ?? 0)} gems</span>
+            </div>
           </div>
         </div>
 
@@ -415,9 +518,12 @@ export default function ShopPage() {
         </div>
 
         {/* How to earn coins - moved to top and smaller */}
-        <div className="mb-6 bg-white/20 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-center">
+        <div className="mb-6 bg-white/20 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-center space-y-1">
           <p className="text-xs text-white/90">
             💡 Earn 20 coins for every 50 meters traveled
+          </p>
+          <p className="text-xs text-white/90">
+            💎 Earn 20 gems for every 100 meters traveled
           </p>
         </div>
 
@@ -468,6 +574,18 @@ export default function ShopPage() {
             </div>
           </div>
         )}
+
+        <div className="mt-8">
+          <div className="text-center mb-4">
+            <h2 className="text-2xl sm:text-3xl font-black text-white drop-shadow-lg">
+              Gamepasses
+            </h2>
+            <p className="text-white/80 text-sm">Permanent upgrades purchased with gems</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
+            {GAMEPASSES.map((pass) => renderGamepassCard(pass))}
+          </div>
+        </div>
       </div>
     </MenuBackground>
   );
