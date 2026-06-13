@@ -16,6 +16,7 @@ const db = admin.firestore();
 // Collection names
 const SESSIONS_COLLECTION = 'gameSessions';
 const LEADERBOARD_COLLECTION = 'leaderboard';
+const USERS_COLLECTION = 'users';
 
 // Anti-cheat configuration
 const MAX_METERS_PER_SECOND = 30; // Maximum plausible score rate
@@ -184,12 +185,26 @@ export const submitScore = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'Score exceeds maximum possible for game duration');
     }
     
-    // All validations passed - save the score
+    // All validations passed - snapshot VIP status for leaderboard styling
+    const initialsUpper = initials.toUpperCase();
+    let isVip = false;
+    try {
+      const userDoc = await db.collection(USERS_COLLECTION).doc(initialsUpper).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        isVip = userData?.gamepasses?.vip === true;
+      }
+    } catch (vipLookupError) {
+      console.warn(`VIP lookup failed for ${initialsUpper}:`, vipLookupError);
+    }
+
+    // Save the score with denormalized VIP flag
     await db.collection(LEADERBOARD_COLLECTION).add({
       avatarId,
-      initials: initials.toUpperCase(),
+      initials: initialsUpper,
       distance: Math.floor(distance), // Ensure integer
       date: new Date().toISOString(),
+      isVip,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       sessionId, // Reference to the game session
     });

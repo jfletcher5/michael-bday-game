@@ -35,6 +35,7 @@ import {
   type ProPassConfig,
 } from './proPass';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
+import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -198,7 +199,8 @@ export async function getScoresFromFirestore(
         avatarId: data.avatarId ?? 1,
         initials: data.initials ?? (data.username ? data.username.slice(0, 3).toUpperCase() : 'AAA'),
         distance: data.distance || 0,
-        date: data.date || new Date().toISOString()
+        date: data.date || new Date().toISOString(),
+        isVip: data.isVip === true,
       };
     });
     
@@ -274,6 +276,7 @@ export async function createUser(
       password: credentials.password,
       totalMeters: 0,
       totalCoins: 0,
+      totalGems: 0,
       ownedBalls: ['default'], // Start with default ball owned
       selectedBall: 'default',
       avatarId,
@@ -400,12 +403,14 @@ export async function getUserData(username: string): Promise<User | null> {
  * @param username - The username to update
  * @param metersEarned - Meters traveled in this game
  * @param coinsEarned - Coins earned in this game
+ * @param gemsEarned - Gems earned in this game (20 per 100m milestone)
  * @returns Promise that resolves to updated User object
  */
 export async function updateUserStats(
   username: string,
   metersEarned: number,
-  coinsEarned: number
+  coinsEarned: number,
+  gemsEarned: number = 0
 ): Promise<User | null> {
   try {
     const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
@@ -458,10 +463,13 @@ export async function updateUserStats(
       }
     }
 
+    const currentGems = currentData.totalGems ?? 0;
+
     // Update stats
     const updates: Record<string, unknown> = {
       totalMeters: currentData.totalMeters + metersEarned,
       totalCoins: currentData.totalCoins + coinsEarned,
+      totalGems: currentGems + gemsEarned,
       seasonData,
     };
     if (proPassData) {
@@ -475,12 +483,13 @@ export async function updateUserStats(
       ...currentData,
       totalMeters: currentData.totalMeters + metersEarned,
       totalCoins: currentData.totalCoins + coinsEarned,
+      totalGems: currentGems + gemsEarned,
       extraBalls: currentData.extraBalls ?? 0,
       seasonData,
       proPassData: proPassData ?? currentData.proPassData ?? null,
     };
 
-    console.log(`Stats updated for ${username}: +${metersEarned}m, +${coinsEarned} coins`);
+    console.log(`Stats updated for ${username}: +${metersEarned}m, +${coinsEarned} coins, +${gemsEarned} gems`);
     return updatedUser;
   } catch (error) {
     console.error('Error updating user stats:', error);
@@ -588,6 +597,11 @@ export async function purchaseBall(
     ) {
       throw new Error('Collect all Aurora Shards first');
     }
+
+    // VIP Ball is only granted via the VIP gamepass purchase flow.
+    if (ballId === VIP_BALL_ID && userData.gamepasses?.vip !== true) {
+      throw new Error('Purchase the VIP gamepass first');
+    }
     
     // Check if user has enough coins
     if (userData.totalCoins < price) {
@@ -612,6 +626,71 @@ export async function purchaseBall(
   } catch (error) {
     console.error('Error purchasing ball:', error);
     throw error;
+  }
+}
+
+/**
+ * Purchase a permanent gamepass with gems (VIP or 2x Cash).
+ * VIP also grants the VIP ball into ownedBalls when not already owned.
+ */
+export async function purchaseGamepass(username: string, passId: GamepassId): Promise<User> {
+  const pass = getGamepassById(passId);
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    const currentGems = userData.totalGems ?? 0;
+    const ownedPasses = userData.gamepasses ?? {};
+
+    if (passId === 'vip' && ownedPasses.vip) throw new Error('Gamepass already owned');
+    if (passId === 'doubleCash' && ownedPasses.doubleCash) throw new Error('Gamepass already owned');
+    if (currentGems < pass.gemPrice) throw new Error('Not enough gems');
+
+    const updates: Record<string, unknown> = {
+      totalGems: currentGems - pass.gemPrice,
+      gamepasses: {
+        ...ownedPasses,
+        [passId]: true,
+      },
+    };
+
+    let ownedBalls = userData.ownedBalls;
+    if (passId === 'vip' && !ownedBalls.includes(VIP_BALL_ID)) {
+      updates.ownedBalls = arrayUnion(VIP_BALL_ID);
+      ownedBalls = [...ownedBalls, VIP_BALL_ID];
+    }
+
+    transaction.update(userRef, updates);
+
+    return {
+      ...userData,
+      totalGems: currentGems - pass.gemPrice,
+      gamepasses: {
+        ...ownedPasses,
+        [passId]: true,
+      },
+      ownedBalls,
+    };
+  });
+}
+
+/**
+ * Fetch usernames with VIP gamepass for leaderboard fallback rows
+ * that predate isVip denormalization on score docs.
+ */
+export async function getVipUsernames(): Promise<Set<string>> {
+  try {
+    const q = query(collection(db, USERS_COLLECTION), where('gamepasses.vip', '==', true));
+    const snap = await getDocs(q);
+    const result = new Set<string>();
+    snap.docs.forEach((d) => result.add(d.id.toUpperCase()));
+    return result;
+  } catch (error) {
+    console.error('Error fetching VIP usernames:', error);
+    return new Set();
   }
 }
 

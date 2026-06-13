@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">VIP Ball</title>
+  <desc id="desc">Gold ball with a crown for VIP gamepass owners.</desc>
+  <defs>
+    <radialGradient id="vipBallGradient" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#fff9c4" />
+      <stop offset="55%" stop-color="#FFD700" />
+      <stop offset="100%" stop-color="#B8860B" />
+    </radialGradient>
+    <linearGradient id="crownGradient" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffe566" />
+      <stop offset="100%" stop-color="#c9a000" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="256" cy="300" r="188" fill="#3d2a00" opacity="0.18" />
+
+  <!-- Crown sits above the ball -->
+  <path
+    d="M96 210 L136 150 L176 195 L216 120 L256 175 L296 120 L336 195 L376 150 L416 210 L416 250 L96 250 Z"
+    fill="url(#crownGradient)"
+    stroke="#8a6500"
+    stroke-width="10"
+    stroke-linejoin="round"
+  />
+  <circle cx="136" cy="150" r="18" fill="#ffec8b" stroke="#8a6500" stroke-width="6" />
+  <circle cx="256" cy="120" r="22" fill="#ffec8b" stroke="#8a6500" stroke-width="6" />
+  <circle cx="376" cy="150" r="18" fill="#ffec8b" stroke="#8a6500" stroke-width="6" />
+
+  <circle cx="256" cy="300" r="172" fill="url(#vipBallGradient)" stroke="#B8860B" stroke-width="14" />
+
+  <!-- VIP star badge on the ball -->
+  <polygon
+    points="256,228 272,272 320,272 282,300 296,344 256,318 216,344 230,300 192,272 240,272"
+    fill="#fff3b0"
+    stroke="#8a6500"
+    stroke-width="6"
+    stroke-linejoin="round"
+  />
+</svg>

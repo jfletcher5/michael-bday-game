@@ -6,6 +6,7 @@ import { BallType } from './types';
 import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
 import { getProPassBallById, PRO_PASS_BALLS } from './proPass';
 import { AURORA_BALL_ID } from './aurora';
+import { VIP_BALL_ID } from './gamepasses';
 
 /**
  * Twemoji CDN base URL for SVG images
@@ -155,6 +156,17 @@ export const BALL_TYPES: BallType[] = [
     strokeColor: '#0b8f45',
     isDefault: false,
     description: 'A black and dark-green event ball earned by collecting 12 Aurora Shards.',
+  },
+  {
+    id: VIP_BALL_ID,
+    name: 'VIP Ball',
+    price: 0,
+    color: '#FFD700',
+    strokeColor: '#B8860B',
+    isDefault: false,
+    // Granted automatically when the VIP gamepass is purchased — not sold for coins.
+    imageUrl: '/vip-ball.svg',
+    description: 'Exclusive gold crown ball for VIP gamepass owners!',
   },
 ];
 

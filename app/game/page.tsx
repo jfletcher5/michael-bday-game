@@ -6,6 +6,7 @@ import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/
 import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
+import { hasDoubleCash } from '../lib/gamepasses';
 import { AURORA_SHARD_GOAL } from '../lib/aurora';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
@@ -47,8 +48,10 @@ function Game() {
   // Game metrics — refs hold the live values; state is throttled for HUD display.
   const distanceRef = useRef(0);
   const coinsEarnedRef = useRef(0);
+  const gemsEarnedRef = useRef(0);
   const [displayDistance, setDisplayDistance] = useState(0);
   const [displayCoins, setDisplayCoins] = useState(0);
+  const [displayGems, setDisplayGems] = useState(0);
   const [bossHud, setBossHud] = useState<BossHudState | null>(null);
   const hudTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -59,8 +62,10 @@ function Game() {
   const currentUserRef = useRef<User | null>(null);
   const [auroraProgress, setAuroraProgress] = useState({ shards: 0, unlocked: false });
 
-  // Track last distance milestone for coin calculation (every 50m = 20 coins)
+  // Track last distance milestone for coin calculation (every 50m = 20 coins, 40 with 2x Cash)
   const lastCoinMilestoneRef = useRef(0);
+  // Gems: 20 per 100 meters traveled during the run
+  const lastGemMilestoneRef = useRef(0);
   
   // Score save status for the game over modal
   const [scoreSaved, setScoreSaved] = useState(true);
@@ -143,11 +148,13 @@ function Game() {
       hudTimerRef.current = setInterval(() => {
         setDisplayDistance(distanceRef.current);
         setDisplayCoins(coinsEarnedRef.current);
+        setDisplayGems(gemsEarnedRef.current);
       }, 250);
     } else {
       // Flush final values when game ends.
       setDisplayDistance(distanceRef.current);
       setDisplayCoins(coinsEarnedRef.current);
+      setDisplayGems(gemsEarnedRef.current);
       if (hudTimerRef.current) {
         clearInterval(hudTimerRef.current);
         hudTimerRef.current = null;
@@ -175,13 +182,21 @@ function Game() {
   const handleDistanceUpdate = useCallback((newDistance: number) => {
     distanceRef.current = newDistance;
 
-    // Calculate coins: 20 coins for every 50 meters
-    const newMilestone = Math.floor(newDistance / 50);
-    if (newMilestone > lastCoinMilestoneRef.current) {
-      const milestonesReached = newMilestone - lastCoinMilestoneRef.current;
-      const newCoins = milestonesReached * 20;
-      coinsEarnedRef.current += newCoins;
-      lastCoinMilestoneRef.current = newMilestone;
+    // Coins: 20 per 50m (40 with 2x Cash gamepass)
+    const coinPerMilestone = hasDoubleCash(currentUserRef.current) ? 40 : 20;
+    const newCoinMilestone = Math.floor(newDistance / 50);
+    if (newCoinMilestone > lastCoinMilestoneRef.current) {
+      const milestonesReached = newCoinMilestone - lastCoinMilestoneRef.current;
+      coinsEarnedRef.current += milestonesReached * coinPerMilestone;
+      lastCoinMilestoneRef.current = newCoinMilestone;
+    }
+
+    // Gems: 20 per 100m milestone
+    const newGemMilestone = Math.floor(newDistance / 100);
+    if (newGemMilestone > lastGemMilestoneRef.current) {
+      const gemMilestonesReached = newGemMilestone - lastGemMilestoneRef.current;
+      gemsEarnedRef.current += gemMilestonesReached * 20;
+      lastGemMilestoneRef.current = newGemMilestone;
     }
   }, []);
 
@@ -202,6 +217,8 @@ function Game() {
     setDisplayDistance(distanceRef.current);
     setDisplayCoins(coinsEarnedRef.current);
 
+    setDisplayGems(gemsEarnedRef.current);
+
     const extraBalls = currentUserRef.current?.extraBalls ?? 0;
     if (extraBalls > 0) {
       setGameState('revivePrompt');
@@ -221,7 +238,12 @@ function Game() {
 
     if (user) {
       try {
-        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
+        const updatedUser = await updateUserStats(
+          user.username,
+          distanceRef.current,
+          coinsEarnedRef.current,
+          gemsEarnedRef.current,
+        );
         if (updatedUser) {
           setCurrentUser(updatedUser);
           currentUserRef.current = updatedUser;
@@ -292,7 +314,12 @@ function Game() {
     // Update user stats if logged in
     if (user) {
       try {
-        const updatedUser = await updateUserStats(user.username, distanceRef.current, coinsEarnedRef.current);
+        const updatedUser = await updateUserStats(
+          user.username,
+          distanceRef.current,
+          coinsEarnedRef.current,
+          gemsEarnedRef.current,
+        );
         if (updatedUser) {
           setCurrentUser(updatedUser);
           currentUserRef.current = updatedUser;
@@ -331,13 +358,16 @@ function Game() {
     setGameState('playing');
     distanceRef.current = 0;
     coinsEarnedRef.current = 0;
+    gemsEarnedRef.current = 0;
     setDisplayDistance(0);
     setDisplayCoins(0);
+    setDisplayGems(0);
     setScoreSaved(true);
     reviveSignalRef.current = false;
     // Reset any prior boss meter for the new run.
     setBossHud(null);
     lastCoinMilestoneRef.current = 0;
+    lastGemMilestoneRef.current = 0;
     setControls({
       left: false,
       right: false,
@@ -416,6 +446,9 @@ function Game() {
           <div className="text-xs sm:text-sm font-semibold">Distance: {displayDistance}m</div>
           <div className="text-xs sm:text-sm font-semibold flex items-center gap-1 mt-0.5 sm:mt-1">
             <span className="text-yellow-300">🪙</span> {displayCoins} coins
+          </div>
+          <div className="text-xs sm:text-sm font-semibold flex items-center gap-1 mt-0.5">
+            <span className="text-cyan-200">💎</span> {displayGems} gems
           </div>
         </div>
       )}

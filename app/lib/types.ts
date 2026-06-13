@@ -9,6 +9,7 @@ export interface Score {
   initials: string;      // 3-letter initials (e.g., "ABC")
   distance: number;      // Distance survived (primary ranking)
   date: string;          // ISO date string when score was achieved
+  isVip?: boolean;       // Snapshot at submit time — VIP gamepass styling on leaderboard
 }
 
 /**
@@ -36,6 +37,11 @@ export interface User {
   password: string;      // User's password
   totalMeters: number;   // Cumulative distance traveled across all games
   totalCoins: number;    // Cumulative coins collected
+  totalGems?: number;    // Cumulative gems earned (MIE-9)
+  gamepasses?: {         // Permanent gem-purchased entitlements (MIE-9)
+    vip?: boolean;
+    doubleCash?: boolean;
+  };
   ownedBalls: string[];  // Array of owned ball type IDs
   selectedBall: string;  // Currently selected ball type ID
   avatarId: number;      // Selected avatar (1-9)
@@ -121,6 +127,7 @@ export interface BallType {
   id: string;            // Unique identifier for the ball type
   name: string;          // Display name
   price: number;         // Cost in coins (0 for default)
+  gemPrice?: number;     // Optional gem cost for dual-currency balls (MIE-10)
   color: string;         // Primary color (hex)
   strokeColor: string;   // Outline color (hex)
   isDefault: boolean;    // Whether this is the free default ball
