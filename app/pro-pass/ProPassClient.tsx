@@ -64,7 +64,9 @@ export default function ProPassClient() {
       }
 
       setConfig(loadedConfig);
-      setTimeLeft(getTimeRemainingForProPass(loadedConfig));
+      if (loadedConfig) {
+        setTimeLeft(getTimeRemainingForProPass(loadedConfig));
+      }
       setIsLoading(false);
     }
 
@@ -86,7 +88,13 @@ export default function ProPassClient() {
     return () => clearInterval(timer);
   }, [config]);
 
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <MenuBackground className="min-h-screen flex items-center justify-center p-4">
+        <p className="text-white font-medium drop-shadow">Loading Pro Pass…</p>
+      </MenuBackground>
+    );
+  }
 
   if (!config) {
     return (

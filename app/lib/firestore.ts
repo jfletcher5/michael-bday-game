@@ -461,7 +461,11 @@ export async function updateUserStats(
           claimedPremium: [],
         };
       }
+    } else if (currentData.proPassData && currentData.proPassData.passId === activeProPass.id) {
+      // Pass ended — keep existing progress readable but do not add meters.
+      proPassData = currentData.proPassData;
     }
+    // Else: pass inactive with no matching progress — omit proPassData from the write.
 
     const currentGems = currentData.totalGems ?? 0;
 
@@ -472,7 +476,10 @@ export async function updateUserStats(
       totalGems: currentGems + gemsEarned,
       seasonData,
     };
-    if (proPassData) {
+    if (
+      isProPassActive() ||
+      (currentData.proPassData && currentData.proPassData.passId === activeProPass.id)
+    ) {
       updates.proPassData = proPassData;
     }
 
@@ -486,7 +493,10 @@ export async function updateUserStats(
       totalGems: currentGems + gemsEarned,
       extraBalls: currentData.extraBalls ?? 0,
       seasonData,
-      proPassData: proPassData ?? currentData.proPassData ?? null,
+      proPassData:
+        updates.proPassData !== undefined
+          ? (proPassData ?? null)
+          : (currentData.proPassData ?? null),
     };
 
     console.log(`Stats updated for ${username}: +${metersEarned}m, +${coinsEarned} coins, +${gemsEarned} gems`);
@@ -924,10 +934,13 @@ export async function getProPassConfigFromFirestore(passId: string): Promise<Pro
 }
 
 /** Read Pro Pass config from Firestore first, then fall back to checked-in defaults. */
-export async function getProPassConfigWithFallback(passId?: string): Promise<ProPassConfig> {
-  const id = passId ?? getProPassConfig().id;
-  const firestoreConfig = await getProPassConfigFromFirestore(id);
-  return firestoreConfig ?? getProPassConfig();
+export async function getProPassConfigWithFallback(passId?: string): Promise<ProPassConfig | null> {
+  const localConfig = getProPassConfig();
+  const targetId = passId ?? localConfig.id;
+  const firestoreConfig = await getProPassConfigFromFirestore(targetId);
+  if (firestoreConfig) return firestoreConfig;
+  // Unknown pass IDs must not silently fall back to the current local config.
+  return targetId === localConfig.id ? localConfig : null;
 }
 
 /**
@@ -949,6 +962,7 @@ export async function claimProPassReward(
   if (!pp || pp.passId !== passId) throw new Error('Pro Pass data mismatch');
 
   const config = await getProPassConfigWithFallback(passId);
+  if (!config) throw new Error('Unknown Pro Pass');
   if (levelIndex < 0 || levelIndex >= config.levels.length) throw new Error('Invalid level');
 
   const level = config.levels[levelIndex];
@@ -1006,7 +1020,7 @@ export async function purchaseProPassPremium(
   if (isProPassEnded()) throw new Error('Pro Pass has ended');
 
   const config = await getProPassConfigWithFallback(passId);
-  if (passId !== config.id) throw new Error('Unknown Pro Pass');
+  if (!config || passId !== config.id) throw new Error('Unknown Pro Pass');
 
   const userData = userDoc.data() as User;
   const premiumCost = config.premiumCost;
@@ -1014,6 +1028,11 @@ export async function purchaseProPassPremium(
     console.warn(`Ignoring stale Pro Pass premium cost ${cost}; using configured cost ${premiumCost}`);
   }
   if (userData.totalCoins < premiumCost) throw new Error('Not enough coins');
+
+  // Prevent double-charging if premium was already unlocked.
+  if (userData.proPassData?.passId === config.id && userData.proPassData.premiumUnlocked) {
+    throw new Error('Premium already unlocked');
+  }
 
   let pp = userData.proPassData;
 

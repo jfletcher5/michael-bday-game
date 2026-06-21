@@ -5,7 +5,7 @@ import { User } from '../lib/types';
 import { logout } from '../lib/auth';
 import { formatPrice } from '../lib/ballTypes';
 import { getCurrentSeasonId, getCurrentSeasonConfig } from '../lib/seasons';
-import { getProPassConfig } from '../lib/proPass';
+import { getProPassConfig, isProPassActive, isProPassStarted } from '../lib/proPass';
 
 interface TopNavProps {
   user: User | null;
@@ -39,6 +39,12 @@ export default function TopNav({
   const handleProPass = () => router.push('/pro-pass');
   const seasonConfig = getCurrentSeasonConfig();
   const proPassConfig = getProPassConfig();
+  // Show Pro Pass nav while active/upcoming, or when the user has saved progress for this pass.
+  const showProPassButton =
+    !!user &&
+    (isProPassActive() ||
+      !isProPassStarted() ||
+      user.proPassData?.passId === proPassConfig.id);
 
   const bgClass = transparent
     ? 'bg-black/30 backdrop-blur-sm'
@@ -78,7 +84,7 @@ export default function TopNav({
             </button>
           )}
           {/* Non-admins: Pro Pass sits right after Settings */}
-          {user && !user.isAdmin && (
+          {showProPassButton && !user.isAdmin && (
             <button
               onClick={handleProPass}
               className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
@@ -97,7 +103,7 @@ export default function TopNav({
             </button>
           )}
           {/* Admins: Pro Pass sits right after Admin */}
-          {user?.isAdmin && (
+          {showProPassButton && user?.isAdmin && (
             <button
               onClick={handleProPass}
               className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
