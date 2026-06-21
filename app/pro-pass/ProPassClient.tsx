@@ -24,6 +24,7 @@ import {
 } from '../lib/proPass';
 import { formatPrice } from '../lib/ballTypes';
 import MenuBackground from '../components/MenuBackground';
+import { PageHeader, PageHero, StatPill, Alert } from '../components/ui';
 
 export default function ProPassClient() {
   const router = useRouter();
@@ -99,7 +100,7 @@ export default function ProPassClient() {
   if (!config) {
     return (
       <MenuBackground className="min-h-screen flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+        <div className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-8 max-w-md w-full text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-4">No Pro Pass</h1>
           <p className="text-gray-600 mb-6">There is no Pro Pass configured right now.</p>
           <button onClick={() => router.push('/')} className="bg-gray-200 text-gray-800 font-semibold py-2 px-6 rounded-lg hover:bg-gray-300 transition-all">
@@ -116,7 +117,7 @@ export default function ProPassClient() {
 
     return (
       <MenuBackground className="min-h-screen flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 max-w-md w-full text-center">
+        <div className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 max-w-md w-full text-center">
           <div className="text-6xl mb-3">🔒</div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
             {config.emoji} Pro Pass
@@ -284,46 +285,31 @@ export default function ProPassClient() {
   };
 
   return (
-    <MenuBackground className="min-h-screen p-2 sm:p-4">
-      <div className="max-w-4xl mx-auto mb-3 sm:mb-4">
-        <div className="flex items-center justify-between gap-2">
-          <button
-            onClick={() => router.push('/')}
-            className="bg-white/20 backdrop-blur-sm text-white font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:bg-white/30 transition-all text-sm"
-          >
-            &larr; Back
-          </button>
-          <h1 className="text-sm sm:text-xl font-bold text-white drop-shadow text-center">
-            {config.emoji} Pro Pass
-          </h1>
-          <div className="bg-white/20 backdrop-blur-sm text-white min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-1.5 text-sm">
-            <span className="text-base sm:text-lg">🪙</span>
-            <span className="font-bold">{formatPrice(user?.totalCoins ?? 0)}</span>
-          </div>
-        </div>
+    <MenuBackground className="min-h-screen p-3 sm:p-4 py-6">
+      <div className="max-w-4xl mx-auto animate-page-in">
+        <PageHeader
+          right={<StatPill icon="🪙">{formatPrice(user?.totalCoins ?? 0)}</StatPill>}
+        />
+        <PageHero title={`${config.emoji} Pro Pass`} className="mb-5" />
       </div>
 
       {(error || success) && (
-        <div className="max-w-4xl mx-auto mb-3">
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">{error}</div>
-          )}
-          {success && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-600">{success}</div>
-          )}
+        <div className="max-w-4xl mx-auto mb-3 space-y-2">
+          {error && <Alert>{error}</Alert>}
+          {success && <Alert tone="success">{success}</Alert>}
         </div>
       )}
 
       {passEnded && (
         <div className="max-w-4xl mx-auto mb-3">
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 text-center">
+          <Alert tone="info">
             Pro Pass has ended — you can still claim earned rewards, but no new meters will accrue.
-          </div>
+          </Alert>
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-2xl p-3 sm:p-5">
+      <div className="max-w-4xl mx-auto animate-page-in">
+        <div className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-3 sm:p-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 mb-4">
             <div className="flex items-center gap-2 bg-gray-900 text-white rounded-lg px-3 py-2">
               <span className="text-base">&#9200;</span>

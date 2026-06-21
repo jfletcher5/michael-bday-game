@@ -12,6 +12,7 @@ import { getOwnedProPassBalls } from '../lib/proPass';
 import { User, BallType, ShopOffer } from '../lib/types';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 import MenuBackground from '../components/MenuBackground';
+import { PageHeader, PageHero, StatPill, Alert } from '../components/ui';
 
 function formatOfferTimeLeft(endsAtMs: number, nowMs: number): string {
   const diffMs = Math.max(0, endsAtMs - nowMs);
@@ -213,7 +214,7 @@ export default function ShopPage() {
     return (
       <div
         key={ball.id}
-        className={`relative bg-white rounded-xl shadow-md p-4 border-2 transition-all flex flex-col h-full ${
+        className={`relative bg-white rounded-2xl shadow-glow-sm p-4 border-2 transition-all duration-200 hover:-translate-y-1 hover:shadow-glow flex flex-col h-full${
           selected
             ? 'border-purple-500 ring-2 ring-purple-200'
             : owned
@@ -363,7 +364,7 @@ export default function ShopPage() {
     return (
       <div
         key={pass.id}
-        className={`relative bg-white rounded-xl shadow-md p-4 border-2 transition-all flex flex-col h-full ${
+        className={`relative bg-white rounded-2xl shadow-glow-sm p-4 border-2 transition-all duration-200 hover:-translate-y-1 hover:shadow-glow flex flex-col h-full${
           owned ? 'border-green-300' : 'border-cyan-200'
         }`}
       >
@@ -438,7 +439,7 @@ export default function ShopPage() {
     return (
       <div
         key={offer.id}
-        className={`relative overflow-hidden bg-white rounded-2xl shadow-xl border-2 flex flex-col h-full ${
+        className={`relative overflow-hidden bg-white rounded-2xl shadow-glow border-2 transition-all duration-200 hover:-translate-y-1 flex flex-col h-full ${
           selected
             ? 'border-purple-500 ring-2 ring-purple-200'
             : owned
@@ -548,43 +549,22 @@ export default function ShopPage() {
   });
 
   return (
-    <MenuBackground className="min-h-screen p-4">
+    <MenuBackground className="min-h-screen p-4 py-6">
       {/* Header */}
-      <div className="max-w-4xl mx-auto">
-        {/* Top Bar */}
-        <div className="flex justify-between items-center mb-4 sm:mb-6">
-          <button
-            onClick={() => router.push('/')}
-            className="bg-white/20 backdrop-blur-sm text-white font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:bg-white/30 transition-all text-sm"
-          >
-            &larr; Back
-          </button>
+      <div className="max-w-4xl mx-auto animate-page-in">
+        <PageHeader
+          right={
+            <>
+              <StatPill icon="🪙">{formatPrice(user.totalCoins)} coins</StatPill>
+              <StatPill icon="💎">{formatGems(user.totalGems ?? 0)} gems</StatPill>
+            </>
+          }
+        />
 
-          {/* Coin + gem balances */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
-              <span className="text-yellow-300 text-lg sm:text-xl">🪙</span>
-              <span>{formatPrice(user.totalCoins)} coins</span>
-            </div>
-            <div className="bg-white/20 backdrop-blur-sm text-white font-bold min-h-[44px] py-2 px-3 sm:px-4 rounded-lg flex items-center gap-2 text-sm">
-              <span className="text-cyan-200 text-lg sm:text-xl">💎</span>
-              <span>{formatGems(user.totalGems ?? 0)} gems</span>
-            </div>
-          </div>
-        </div>
+        <PageHero title="🛒 Ball Shop" subtitle="Purchase and select your ball style" />
 
-        {/* Page Title */}
-        <div className="text-center mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-4xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">
-            Ball Shop
-          </h1>
-          <p className="text-white/80 text-sm sm:text-base">
-            Purchase and select your ball style
-          </p>
-        </div>
-
-        {/* How to earn coins - moved to top and smaller */}
-        <div className="mb-6 bg-white/20 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-center space-y-1">
+        {/* How to earn coins */}
+        <div className="mb-6 max-w-md mx-auto bg-white/15 backdrop-blur-md ring-1 ring-white/25 rounded-2xl px-4 py-2.5 text-white text-center space-y-1">
           <p className="text-xs text-white/90">
             💡 Earn 20 coins for every 50 meters traveled
           </p>
@@ -594,16 +574,8 @@ export default function ShopPage() {
         </div>
 
         {/* Messages */}
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 max-w-md mx-auto">
-            <p className="text-sm text-red-600 text-center">{error}</p>
-          </div>
-        )}
-        {success && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 max-w-md mx-auto">
-            <p className="text-sm text-green-600 text-center">{success}</p>
-          </div>
-        )}
+        {error && <Alert className="mb-4 max-w-md mx-auto">{error}</Alert>}
+        {success && <Alert tone="success" className="mb-4 max-w-md mx-auto">{success}</Alert>}
 
         {/* Ball Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">

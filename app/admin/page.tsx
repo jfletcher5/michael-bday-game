@@ -21,6 +21,7 @@ import {
 import { User, GameEvent, BroadcastMessage, ShopOffer, Poll, GameEventType, BallType } from '../lib/types';
 import { formatPrice, getBallTypeById, getOfferableBallTypes } from '../lib/ballTypes';
 import VerifiedBadge from '../components/VerifiedBadge';
+import MenuBackground from '../components/MenuBackground';
 import { isAvatarCreator } from '../lib/avatarItems';
 import { AvatarCreateTab, AvatarListTab } from './AvatarCreatorTabs';
 
@@ -118,10 +119,10 @@ export default function AdminPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
-      <div className="max-w-5xl mx-auto">
+    <MenuBackground className="min-h-screen p-4">
+      <div className="max-w-5xl mx-auto animate-page-in">
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-r from-purple-700 to-pink-700 px-4 sm:px-6 py-4 flex items-center justify-between">
             <h1 className="text-white text-xl sm:text-2xl font-bold flex items-center gap-2">
@@ -165,7 +166,7 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
-    </div>
+    </MenuBackground>
   );
 }
 

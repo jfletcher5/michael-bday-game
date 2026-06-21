@@ -110,10 +110,10 @@ export default function Home() {
       {/* Top Navigation */}
       <TopNav user={currentUser} onLogout={handleLogout} transparent />
       
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto">
+      <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto animate-page-in">
         {/* Game Title */}
-        <div className="text-center mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
+        <div className="text-center mb-5 sm:mb-7">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1 sm:mb-2">
             Platform Drop
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
@@ -131,7 +131,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleOpenAvatars}
-              className="group rounded-xl p-3 bg-purple-50 ring-2 ring-purple-200 hover:ring-purple-400 transition-all"
+              className="group rounded-2xl p-3 bg-purple-50 ring-2 ring-purple-200 hover:ring-purple-400 hover:-translate-y-1 hover:shadow-glow-sm transition-all duration-200"
               aria-label="Open avatar shop"
             >
               <AvatarMannequin layers={equippedLayers} className="pointer-events-none" />
@@ -185,7 +185,7 @@ export default function Home() {
               return (
                 <button
                   onClick={() => router.push(`/season/${currentSeasonId}`)}
-                  className="w-full mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-3 hover:shadow-md transition-all text-left"
+                  className="w-full mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-3 hover:-translate-y-0.5 hover:shadow-glow-sm transition-all duration-200 text-left"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -209,20 +209,20 @@ export default function Home() {
               <button
                 onClick={handleStartGame}
                 disabled={!canStartGame}
-                className={`w-full font-semibold min-h-[48px] py-3 px-6 rounded-lg transition-all transform shadow-lg text-sm sm:text-base ${
+                className={`w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl transition-all transform shadow-lg text-base ${
                   canStartGame
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-105'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-[1.02] active:scale-95'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                {canStartGame ? 'Start Game' : 'Loading...'}
+                {canStartGame ? '▶  Start Game' : 'Loading...'}
               </button>
 
               <button
                 onClick={handleViewLeaderboard}
-                className="w-full bg-gray-200 text-gray-800 font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:bg-gray-300 transition-all transform hover:scale-105 text-sm sm:text-base"
+                className="w-full bg-gray-100 text-gray-800 font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:bg-gray-200 transition-all transform hover:scale-[1.02] active:scale-95 text-base"
               >
-                View Leaderboard
+                🏆  View Leaderboard
               </button>
             </div>
 

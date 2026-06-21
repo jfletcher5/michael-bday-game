@@ -22,9 +22,108 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Use the Geist font loaded in layout.tsx, with friendly system fallbacks. */
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Friendlier text selection that matches the purple theme. */
+::selection {
+  background: #e9d5ff;
+  color: #4c1d95;
+}
+
+/* Clear, consistent keyboard focus ring across all interactive elements. */
+:focus-visible {
+  outline: 3px solid #a855f7;
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------
+   Entrance animations + glow (CSS-only, no dependencies)
+   --------------------------------------------------------------- */
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes floatY {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Content eases up + fades in on every route mount (the "page transition"). */
+.animate-page-in {
+  animation: pageIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Fixed top nav drops in from above. */
+.animate-drop-in {
+  animation: dropIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-pop-in {
+  animation: popIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-float {
+  animation: floatY 3s ease-in-out infinite;
+}
+
+/* Soft, deep shadows so white cards glow off the gradient. */
+.shadow-glow {
+  box-shadow: 0 22px 55px -18px rgba(17, 12, 34, 0.55);
+}
+
+.shadow-glow-sm {
+  box-shadow: 0 8px 24px -10px rgba(17, 12, 34, 0.4);
+}
+
+/* Honor users who prefer reduced motion: drop the auto-playing entrances. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-in,
+  .animate-drop-in,
+  .animate-pop-in,
+  .animate-float {
+    animation: none;
+  }
 }
 
 /* Disable page scroll only on the game route */
@@ -60,21 +159,25 @@ button {
   transition: opacity 300ms, transform 300ms;
 }
 
-/* Custom scrollbar styling for leaderboard */
-.overflow-y-auto::-webkit-scrollbar {
+/* Subtle, rounded custom scrollbars for scrollable panels (leaderboard, etc.) */
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-x-auto::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 9999px;
 }
 
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #555;
+.overflow-y-auto::-webkit-scrollbar-thumb:hover,
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }

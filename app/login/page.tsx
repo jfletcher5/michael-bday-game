@@ -7,6 +7,7 @@ import { createUser, loginUser } from '../lib/firestore';
 import { setCurrentUser } from '../lib/auth';
 import { AVATAR_OPTIONS, getAvatarUrl, formatInitials, validateInitials } from '../lib/avatars';
 import MenuBackground from '../components/MenuBackground';
+import { Alert } from '../components/ui';
 
 /**
  * Login/Register Page
@@ -82,10 +83,10 @@ export default function LoginPage() {
 
   return (
     <MenuBackground className="min-h-screen flex flex-col items-center justify-center p-4 py-8">
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto">
+      <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto animate-page-in">
         {/* Page Title */}
-        <div className="text-center mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
+        <div className="text-center mb-5 sm:mb-7">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1 sm:mb-2">
             {isRegister ? 'Create Account' : 'Login'}
           </h1>
           <p className="text-gray-600">
@@ -139,11 +140,7 @@ export default function LoginPage() {
           {/* RIGHT COLUMN: Form Inputs and Info */}
           <div className={`md:w-1/2 flex flex-col ${!isRegister ? 'md:mx-auto md:max-w-md' : ''}`}>
             {/* Error Message */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-                <p className="text-sm text-red-600 text-center">{error}</p>
-              </div>
-            )}
+            {error && <Alert className="mb-4">{error}</Alert>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Username Input (3 letters) */}
@@ -226,10 +223,10 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={!isFormValid() || isLoading}
-                className={`w-full font-semibold min-h-[48px] py-3 px-6 rounded-lg transition-all transform shadow-lg text-sm sm:text-base ${
+                className={`w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl transition-all transform shadow-lg text-base ${
                   isFormValid() && !isLoading
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-105'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-[1.02] active:scale-95'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
                 {isLoading ? 'Please wait...' : isRegister ? 'Create Account' : 'Login'}

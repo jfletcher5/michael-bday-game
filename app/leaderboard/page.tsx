@@ -7,6 +7,8 @@ import { getScoresFromFirestore, getVerifiedUsernames, getVipUsernames } from '.
 import { Score } from '../lib/types';
 import { getAvatarUrl } from '../lib/avatars';
 import VerifiedBadge from '../components/VerifiedBadge';
+import MenuBackground from '../components/MenuBackground';
+import { PageHeader } from '../components/ui';
 
 // Maximum number of scores shown in the scrollable leaderboard
 const MAX_SCORES = 200;
@@ -63,12 +65,14 @@ export default function Leaderboard() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4 py-8">
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-2xl mx-2 sm:mx-4 my-auto">
+    <MenuBackground className="min-h-screen p-4 py-6">
+      <div className="max-w-2xl mx-auto w-full animate-page-in">
+        <PageHeader />
+        <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-5 sm:p-7 w-full">
         {/* Page Title */}
-        <div className="text-center mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
-            Leaderboard
+        <div className="text-center mb-5 sm:mb-6">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1 sm:mb-2">
+            🏆 Leaderboard
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
             Top {MAX_SCORES} Players
@@ -166,12 +170,13 @@ export default function Leaderboard() {
         <div className="mt-6 pt-6 border-t border-gray-200">
           <button
             onClick={handleBackToMenu}
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-[1.02] active:scale-95 shadow-lg"
           >
             Back to Menu
           </button>
         </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </MenuBackground>
   );
 }

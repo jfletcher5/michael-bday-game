@@ -30,6 +30,7 @@ import AvatarMannequin from '../components/AvatarMannequin';
 import EmoteOverlay from '../components/EmoteOverlay';
 import VerifiedBadge from '../components/VerifiedBadge';
 import MenuBackground from '../components/MenuBackground';
+import { PageHeader, PageHero, StatPill, Alert } from '../components/ui';
 
 export default function AvatarsClient() {
   const router = useRouter();
@@ -163,36 +164,25 @@ export default function AvatarsClient() {
   if (!user) return null;
 
   return (
-    <MenuBackground className="min-h-screen p-4 pb-24">
+    <MenuBackground className="min-h-screen p-4 py-6 pb-24">
       <EmoteOverlay item={playingEmote} onDone={() => setPlayingEmote(null)} />
 
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={() => router.push('/')}
-            className="bg-white/20 text-white font-medium min-h-[44px] px-4 rounded-lg hover:bg-white/30 text-sm"
-          >
-            ← Back
-          </button>
-          <div className="bg-white/20 text-white font-bold min-h-[44px] px-4 rounded-lg flex items-center gap-2 text-sm">
-            <span>💎</span>
-            <span>{formatGems(user.totalGems ?? 0)} gems</span>
-          </div>
-        </div>
+      <div className="max-w-4xl mx-auto animate-page-in">
+        <PageHeader
+          right={<StatPill icon="💎">{formatGems(user.totalGems ?? 0)} gems</StatPill>}
+        />
 
-        <h1 className="text-2xl sm:text-3xl font-bold text-white text-center mb-4 drop-shadow">
-          Avatar Shop
-        </h1>
+        <PageHero title="👤 Avatar Shop" subtitle="Dress up your character" />
 
         {(error || success) && (
-          <div className="mb-4 max-w-md mx-auto">
-            {error && <p className="text-sm text-red-100 bg-red-900/40 rounded-lg p-3 text-center">{error}</p>}
-            {success && <p className="text-sm text-green-100 bg-green-900/40 rounded-lg p-3 text-center">{success}</p>}
+          <div className="mb-4 max-w-md mx-auto space-y-2">
+            {error && <Alert>{error}</Alert>}
+            {success && <Alert tone="success">{success}</Alert>}
           </div>
         )}
 
         {/* Mannequin + emote */}
-        <div className="bg-white rounded-2xl shadow-xl p-4 mb-4 flex flex-col sm:flex-row items-center gap-4">
+        <div className="bg-white rounded-3xl shadow-glow p-4 mb-4 flex flex-col sm:flex-row items-center gap-4">
           <AvatarMannequin layers={equippedLayers} emoteActive={!!playingEmote} />
           <div className="flex-1 text-center sm:text-left">
             <p className="text-sm text-gray-600 mb-2">Your equipped look (does not change your ball in-game)</p>
@@ -245,7 +235,7 @@ export default function AvatarsClient() {
             const soldOut = limited && item.stock! <= 0 && !owned;
 
             return (
-              <div key={item.id} className="bg-white rounded-xl p-3 border border-gray-200 flex flex-col">
+              <div key={item.id} className="bg-white rounded-2xl p-3 border border-gray-200 flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow-sm">
                 <div className="relative h-20 mb-2 bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center">
                   {item.previewImageUrl ? (
                     <Image src={item.previewImageUrl} alt="" width={64} height={64} className="object-contain" unoptimized />
@@ -308,7 +298,7 @@ export default function AvatarsClient() {
         </div>
 
         {/* Leaderboard appearance (legacy avatarId — MIE-16) */}
-        <div className="bg-white rounded-2xl shadow-xl p-4">
+        <div className="bg-white rounded-3xl shadow-glow p-4">
           <h2 className="font-bold text-gray-800 mb-2">Leaderboard Icon</h2>
           <p className="text-xs text-gray-500 mb-3">This is the face shown on the leaderboard (separate from worn items).</p>
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
