@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
-import { purchaseBall, purchaseGamepass, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
+import { purchaseBall, purchaseBallWithGems, purchaseGamepass, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
 import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
 import { GAMEPASSES, formatGems, VIP_BALL_ID, type GamepassId } from '../lib/gamepasses';
 import { getOwnedSeasonBalls } from '../lib/seasons';
@@ -103,13 +103,13 @@ export default function ShopPage() {
     }
   };
 
-  // Handle ball purchase
+  // Handle ball purchase with coins
   const handlePurchase = async (ball: BallType) => {
     if (!user) return;
     
     setError(null);
     setSuccess(null);
-    setPurchaseLoading(ball.id);
+    setPurchaseLoading(`${ball.id}:coins`);
 
     try {
       const updatedUser = await purchaseBall(user.username, ball.id, ball.price);
@@ -118,6 +118,27 @@ export default function ShopPage() {
       setSuccess(ball.price === 0 ? `Successfully claimed ${ball.name}!` : `Successfully purchased ${ball.name}!`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to purchase';
+      setError(message);
+    } finally {
+      setPurchaseLoading(null);
+    }
+  };
+
+  // Handle ball purchase with gems (dual-currency balls — MIE-10)
+  const handleGemPurchase = async (ball: BallType) => {
+    if (!user || !ball.gemPrice) return;
+
+    setError(null);
+    setSuccess(null);
+    setPurchaseLoading(`${ball.id}:gems`);
+
+    try {
+      const updatedUser = await purchaseBallWithGems(user.username, ball.id);
+      setUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setSuccess(`Successfully purchased ${ball.name} with gems!`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to purchase with gems';
       setError(message);
     } finally {
       setPurchaseLoading(null);
@@ -180,9 +201,14 @@ export default function ShopPage() {
     
     const owned = isBallOwned(ball.id, user.ownedBalls);
     const selected = user.selectedBall === ball.id;
-    const canAfford = user.totalCoins >= ball.price;
-    const isProcessing = purchaseLoading === ball.id;
-    const isFreeClaim = ball.price === 0 && !owned;
+    const canAffordCoins = user.totalCoins >= ball.price;
+    const gemBalance = user.totalGems ?? 0;
+    const hasGemPrice = typeof ball.gemPrice === 'number' && ball.gemPrice > 0;
+    const canAffordGems = hasGemPrice && gemBalance >= (ball.gemPrice ?? 0);
+    const isProcessingCoins = purchaseLoading === `${ball.id}:coins`;
+    const isProcessingGems = purchaseLoading === `${ball.id}:gems`;
+    const isProcessingSelect = purchaseLoading === ball.id;
+    const isFreeClaim = ball.price === 0 && !hasGemPrice && !owned;
 
     return (
       <div
@@ -247,37 +273,77 @@ export default function ShopPage() {
         {/* Spacer to push button to bottom */}
         <div className="flex-grow"></div>
 
-        {/* Price */}
+        {/* Price — show both currencies when gemPrice is set (MIE-10) */}
         {!owned && (
-          <p className={`text-center text-sm font-semibold mb-3 ${canAfford ? 'text-yellow-600' : 'text-red-500'}`}>
-            {ball.price === 0 ? 'Free' : `${formatPrice(ball.price)} coins`}
-          </p>
+          <div className="text-center text-sm font-semibold mb-3 space-y-0.5">
+            {ball.price === 0 && !hasGemPrice ? (
+              <p className="text-yellow-600">Free</p>
+            ) : (
+              <>
+                {ball.price > 0 && (
+                  <p className={canAffordCoins ? 'text-yellow-600' : 'text-red-500'}>
+                    {formatPrice(ball.price)} coins
+                  </p>
+                )}
+                {hasGemPrice && (
+                  <p className={canAffordGems ? 'text-cyan-600' : 'text-red-500'}>
+                    {formatGems(ball.gemPrice!)} gems
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         )}
 
-        {/* Action Button - Always at bottom */}
+        {/* Action buttons */}
         {owned ? (
           <button
             onClick={() => handleSelect(ball)}
-            disabled={selected || isProcessing}
+            disabled={selected || isProcessingSelect}
             className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all mt-auto ${
               selected
                 ? 'bg-purple-100 text-purple-600 cursor-default'
                 : 'bg-purple-500 text-white hover:bg-purple-600'
             } disabled:opacity-50`}
           >
-            {isProcessing ? 'Selecting...' : selected ? 'Selected' : 'Select'}
+            {isProcessingSelect ? 'Selecting...' : selected ? 'Selected' : 'Select'}
           </button>
+        ) : hasGemPrice ? (
+          <div className="flex flex-col gap-2 mt-auto">
+            <button
+              onClick={() => handlePurchase(ball)}
+              disabled={!canAffordCoins || isProcessingCoins || isProcessingGems}
+              className={`w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                canAffordCoins
+                  ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              } disabled:opacity-50`}
+            >
+              {isProcessingCoins ? 'Purchasing...' : canAffordCoins ? `Buy · ${formatPrice(ball.price)} coins` : 'Not enough coins'}
+            </button>
+            <button
+              onClick={() => handleGemPurchase(ball)}
+              disabled={!canAffordGems || isProcessingCoins || isProcessingGems}
+              className={`w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                canAffordGems
+                  ? 'bg-cyan-500 text-white hover:bg-cyan-600'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              } disabled:opacity-50`}
+            >
+              {isProcessingGems ? 'Purchasing...' : canAffordGems ? `Buy · ${formatGems(ball.gemPrice!)} gems` : 'Not enough gems'}
+            </button>
+          </div>
         ) : (
           <button
             onClick={() => handlePurchase(ball)}
-            disabled={!canAfford || isProcessing}
+            disabled={!canAffordCoins || isProcessingCoins}
             className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all mt-auto ${
-              canAfford
+              canAffordCoins
                 ? 'bg-yellow-500 text-white hover:bg-yellow-600'
                 : 'bg-gray-300 text-gray-500 cursor-not-allowed'
             } disabled:opacity-50`}
           >
-            {isProcessing ? (isFreeClaim ? 'Claiming...' : 'Purchasing...') : isFreeClaim ? 'Claim Free' : canAfford ? 'Purchase' : 'Not enough'}
+            {isProcessingCoins ? (isFreeClaim ? 'Claiming...' : 'Purchasing...') : isFreeClaim ? 'Claim Free' : canAffordCoins ? 'Purchase' : 'Not enough'}
           </button>
         )}
       </div>

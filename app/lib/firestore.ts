@@ -36,6 +36,13 @@ import {
 } from './proPass';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
 import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
+import { getBallTypeById } from './ballTypes';
+import {
+  createStarterEquippedAvatar,
+  normalizeUserAvatarFields,
+  STARTER_OWNED_ITEM_IDS,
+} from './avatarItems';
+import type { AvatarItem, AvatarPartType, EquippedAvatar } from './types';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -249,6 +256,7 @@ const USERS_COLLECTION = 'users';
 // Collection name for season pass reward definitions
 const SEASON_CONFIGS_COLLECTION = 'seasonConfigs';
 const PRO_PASS_CONFIGS_COLLECTION = 'proPassConfigs';
+const AVATAR_ITEMS_COLLECTION = 'avatarItems';
 
 /**
  * Create a new user account
@@ -283,6 +291,8 @@ export async function createUser(
       createdAt: new Date().toISOString(),
       extraBalls: 0,
       seasonData: null,
+      ownedAvatarItems: [...STARTER_OWNED_ITEM_IDS],
+      equippedAvatar: createStarterEquippedAvatar(),
     };
     
     // Save to Firestore using username as document ID
@@ -321,7 +331,7 @@ export async function loginUser(credentials: LoginCredentials): Promise<User> {
     }
     
     console.log('User logged in:', username);
-    return userData;
+    return normalizeUserAvatarFields(userData);
   } catch (error) {
     console.error('Error logging in:', error);
     throw error;
@@ -391,7 +401,7 @@ export async function getUserData(username: string): Promise<User | null> {
       return null;
     }
     
-    return userDoc.data() as User;
+    return normalizeUserAvatarFields(userDoc.data() as User);
   } catch (error) {
     console.error('Error getting user data:', error);
     return null;
@@ -637,6 +647,45 @@ export async function purchaseBall(
     console.error('Error purchasing ball:', error);
     throw error;
   }
+}
+
+/**
+ * Purchase a ball with gems (dual-currency balls like Poop Ball — MIE-10).
+ * Validates gem price from the ball catalog, not the client-supplied amount.
+ */
+export async function purchaseBallWithGems(
+  username: string,
+  ballId: string
+): Promise<User> {
+  const ball = getBallTypeById(ballId);
+  const gemPrice = ball.gemPrice;
+  if (!gemPrice || gemPrice <= 0) {
+    throw new Error('This ball cannot be purchased with gems');
+  }
+
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    if (userData.ownedBalls.includes(ballId)) throw new Error('Ball already owned');
+
+    const currentGems = userData.totalGems ?? 0;
+    if (currentGems < gemPrice) throw new Error('Not enough gems');
+
+    transaction.update(userRef, {
+      totalGems: currentGems - gemPrice,
+      ownedBalls: arrayUnion(ballId),
+    });
+
+    return {
+      ...userData,
+      totalGems: currentGems - gemPrice,
+      ownedBalls: [...userData.ownedBalls, ballId],
+    };
+  });
 }
 
 /**
@@ -1336,5 +1385,183 @@ export async function submitPollAnswer(
  */
 export async function closePoll(pollId: string): Promise<void> {
   await updateDoc(doc(db, POLLS_COLLECTION, pollId), { active: false });
+}
+
+// ============================================
+// AVATAR ITEM FUNCTIONS (MIE-12)
+// ============================================
+
+/** Persist starter avatar fields for legacy users missing them (MIE-16). */
+export async function ensureUserAvatarMigration(username: string): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const raw = userDoc.data() as User;
+  const normalized = normalizeUserAvatarFields(raw);
+  const needsWrite =
+    !raw.ownedAvatarItems ||
+    !raw.equippedAvatar ||
+    raw.ownedAvatarItems.length !== normalized.ownedAvatarItems!.length;
+
+  if (needsWrite) {
+    await updateDoc(userRef, {
+      ownedAvatarItems: normalized.ownedAvatarItems,
+      equippedAvatar: normalized.equippedAvatar,
+    });
+  }
+
+  return normalized;
+}
+
+export function subscribeToAvatarItems(
+  callback: (items: AvatarItem[]) => void
+): Unsubscribe {
+  const q = query(collection(db, AVATAR_ITEMS_COLLECTION), orderBy('createdAtMs', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AvatarItem, 'id'>) }));
+      callback(items);
+    },
+    (error) => {
+      console.error('Error subscribing to avatar items:', error);
+      callback([]);
+    }
+  );
+}
+
+export async function createAvatarItem(
+  creatorUsername: string,
+  input: Omit<AvatarItem, 'id' | 'creatorUsername' | 'createdAtMs' | 'updatedAtMs'>
+): Promise<AvatarItem> {
+  const now = Date.now();
+  const id = `avatar-${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const item: AvatarItem = {
+    ...input,
+    id,
+    creatorUsername: creatorUsername.toUpperCase(),
+    createdAtMs: now,
+    updatedAtMs: now,
+  };
+  await setDoc(doc(db, AVATAR_ITEMS_COLLECTION, id), item);
+  return item;
+}
+
+export async function updateAvatarItem(
+  itemId: string,
+  updates: Partial<
+    Pick<
+      AvatarItem,
+      | 'name'
+      | 'description'
+      | 'gemPrice'
+      | 'onSale'
+      | 'stock'
+      | 'previewImageUrl'
+      | 'modelUrl'
+      | 'shirtTextureUrl'
+    >
+  >
+): Promise<void> {
+  await updateDoc(doc(db, AVATAR_ITEMS_COLLECTION, itemId), {
+    ...updates,
+    updatedAtMs: Date.now(),
+  });
+}
+
+export async function deleteAvatarItem(itemId: string): Promise<void> {
+  await deleteDoc(doc(db, AVATAR_ITEMS_COLLECTION, itemId));
+}
+
+/** Purchase an avatar item with gems; decrements limited stock atomically. */
+export async function purchaseAvatarItem(
+  username: string,
+  item: AvatarItem
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const itemRef = doc(db, AVATAR_ITEMS_COLLECTION, item.id);
+
+  return runTransaction(db, async (transaction) => {
+    const [userDoc, itemDoc] = await Promise.all([
+      transaction.get(userRef),
+      item.id.startsWith('starter-') ? Promise.resolve(null) : transaction.get(itemRef),
+    ]);
+
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = normalizeUserAvatarFields(userDoc.data() as User);
+    if (userData.ownedAvatarItems!.includes(item.id)) throw new Error('Already owned');
+
+    let liveItem = item;
+    if (!item.id.startsWith('starter-')) {
+      if (!itemDoc?.exists()) throw new Error('Item not found');
+      liveItem = { id: itemDoc.id, ...(itemDoc.data() as Omit<AvatarItem, 'id'>) };
+      if (!liveItem.onSale) throw new Error('Item is off sale');
+      if (liveItem.stock !== null && liveItem.stock <= 0) throw new Error('Sold out');
+    }
+
+    const gemPrice = liveItem.gemPrice ?? 0;
+    const currentGems = userData.totalGems ?? 0;
+    if (currentGems < gemPrice) throw new Error('Not enough gems');
+
+    const updates: Record<string, unknown> = {
+      totalGems: currentGems - gemPrice,
+      ownedAvatarItems: arrayUnion(item.id),
+    };
+
+    if (!item.id.startsWith('starter-') && liveItem.stock !== null) {
+      transaction.update(itemRef, { stock: liveItem.stock! - 1, updatedAtMs: Date.now() });
+    }
+
+    transaction.update(userRef, updates);
+
+    return {
+      ...userData,
+      totalGems: currentGems - gemPrice,
+      ownedAvatarItems: [...(userData.ownedAvatarItems ?? []), item.id],
+    };
+  });
+}
+
+/** Equip an owned item into its body slot (replaces prior item in that slot). */
+export async function equipAvatarItem(
+  username: string,
+  itemId: string,
+  partType: AvatarPartType
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = normalizeUserAvatarFields(userDoc.data() as User);
+  if (!userData.ownedAvatarItems!.includes(itemId)) throw new Error('Item not owned');
+
+  const equipped: EquippedAvatar = {
+    ...(userData.equippedAvatar ?? createStarterEquippedAvatar()),
+    [partType]: itemId,
+  };
+
+  await updateDoc(userRef, { equippedAvatar: equipped });
+  return { ...userData, equippedAvatar: equipped };
+}
+
+/** Clear one body slot (unequip). */
+export async function unequipAvatarSlot(
+  username: string,
+  partType: AvatarPartType
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const userData = normalizeUserAvatarFields(userDoc.data() as User);
+  const equipped: EquippedAvatar = {
+    ...(userData.equippedAvatar ?? createStarterEquippedAvatar()),
+    [partType]: null,
+  };
+
+  await updateDoc(userRef, { equippedAvatar: equipped });
+  return { ...userData, equippedAvatar: equipped };
 }
 

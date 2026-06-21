@@ -21,8 +21,10 @@ import {
 import { User, GameEvent, BroadcastMessage, ShopOffer, Poll, GameEventType, BallType } from '../lib/types';
 import { formatPrice, getBallTypeById, getOfferableBallTypes } from '../lib/ballTypes';
 import VerifiedBadge from '../components/VerifiedBadge';
+import { isAvatarCreator } from '../lib/avatarItems';
+import { AvatarCreateTab, AvatarListTab } from './AvatarCreatorTabs';
 
-type Tab = 'events' | 'offers' | 'players' | 'polls' | 'messages';
+type Tab = 'events' | 'offers' | 'players' | 'polls' | 'messages' | 'avatar-create' | 'avatar-list';
 
 const EVENT_TYPES: { id: GameEventType; label: string; emoji: string; description: string }[] = [
   { id: 'taco-rain', label: 'Taco Rain', emoji: '🌮', description: 'Tacos rain from the top of the screen.' },
@@ -99,6 +101,22 @@ export default function AdminPage() {
 
   if (isLoading || !user) return null;
 
+  const showAvatarTabs = isAvatarCreator(user.username) || user.isAdmin;
+
+  const tabDefs: { id: Tab; label: string }[] = [
+    { id: 'events', label: 'Events' },
+    { id: 'offers', label: 'Shop Offers' },
+    ...(showAvatarTabs
+      ? [
+          { id: 'avatar-create' as Tab, label: 'Create Avatar' },
+          { id: 'avatar-list' as Tab, label: 'Avatar List' },
+        ]
+      : []),
+    { id: 'players', label: 'Players' },
+    { id: 'polls', label: 'Polls' },
+    { id: 'messages', label: 'Messages' },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-4">
       <div className="max-w-5xl mx-auto">
@@ -119,20 +137,12 @@ export default function AdminPage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-gray-200 bg-gray-50">
-            {(
-              [
-                { id: 'events', label: 'Events' },
-                { id: 'offers', label: 'Shop Offers' },
-                { id: 'players', label: 'Players' },
-                { id: 'polls', label: 'Polls' },
-                { id: 'messages', label: 'Messages' },
-              ] as { id: Tab; label: string }[]
-            ).map((t) => (
+          <div className="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
+            {tabDefs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex-1 py-3 text-sm font-medium transition border-b-2 -mb-px ${
+                className={`flex-shrink-0 px-3 sm:flex-1 py-3 text-sm font-medium transition border-b-2 -mb-px whitespace-nowrap ${
                   tab === t.id
                     ? 'border-purple-600 text-purple-700 bg-white'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -147,6 +157,8 @@ export default function AdminPage() {
           <div className="p-4 sm:p-6 min-h-[420px]">
             {tab === 'events' && <EventsTab admin={user} />}
             {tab === 'offers' && <OffersTab admin={user} />}
+            {tab === 'avatar-create' && <AvatarCreateTab admin={user} />}
+            {tab === 'avatar-list' && <AvatarListTab />}
             {tab === 'players' && <PlayersTab />}
             {tab === 'polls' && <PollsTab admin={user} />}
             {tab === 'messages' && <MessagesTab admin={user} />}

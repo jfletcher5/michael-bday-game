@@ -3,11 +3,14 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession } from '../lib/firestore';
+import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession, subscribeToAvatarItems } from '../lib/firestore';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import { hasDoubleCash } from '../lib/gamepasses';
 import { AURORA_SHARD_GOAL } from '../lib/aurora';
+import { mergeAvatarCatalog, getEquippedAvatarItems, EMOTE_COOLDOWN_MS } from '../lib/avatarItems';
+import type { AvatarItem } from '../lib/types';
+import EmoteOverlay from '../components/EmoteOverlay';
 import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
@@ -60,6 +63,11 @@ function Game() {
 
   // Current user (if logged in)
   const currentUserRef = useRef<User | null>(null);
+  const [userSnapshot, setUserSnapshot] = useState<User | null>(null);
+  const [avatarCatalog, setAvatarCatalog] = useState<AvatarItem[]>([]);
+  const [playingEmote, setPlayingEmote] = useState<AvatarItem | null>(null);
+  const emoteCooldownUntilRef = useRef(0);
+  const [emoteOnCooldown, setEmoteOnCooldown] = useState(false);
   const [auroraProgress, setAuroraProgress] = useState({ shards: 0, unlocked: false });
 
   // Track last distance milestone for coin calculation (every 50m = 20 coins, 40 with 2x Cash)
@@ -80,6 +88,7 @@ function Game() {
 
   const syncCurrentUser = useCallback((updatedUser: User) => {
     currentUserRef.current = updatedUser;
+    setUserSnapshot(updatedUser);
     playerIdentityRef.current = {
       avatarId: updatedUser.avatarId,
       initials: updatedUser.username,
@@ -120,6 +129,10 @@ function Game() {
     getUserData(user.username).then((fresh) => {
       if (fresh) syncCurrentUser(fresh);
     });
+
+    const unsubAvatars = subscribeToAvatarItems((items) => {
+      setAvatarCatalog(mergeAvatarCatalog(items));
+    });
     
     // Start a secure game session via Cloud Function
     // This is REQUIRED for anti-cheat protection
@@ -140,6 +153,8 @@ function Game() {
     };
     
     initSession();
+
+    return () => unsubAvatars();
   }, [router, syncCurrentUser]);
   
   // Throttle HUD state updates to ~4 times per second instead of every frame.
@@ -393,6 +408,24 @@ function Game() {
   // Get the current ball type for rendering
   const ballType = getSelectedBallType();
 
+  const equippedLayers = userSnapshot
+    ? getEquippedAvatarItems(userSnapshot, avatarCatalog)
+    : {};
+  const equippedEmote = equippedLayers.emote ?? null;
+
+  /** Trigger equipped emote during gameplay — respects cooldown and no stacking (MIE-17). */
+  const handlePlayEmote = () => {
+    if (!equippedEmote || playingEmote || emoteOnCooldown) return;
+    setPlayingEmote(equippedEmote);
+    emoteCooldownUntilRef.current = Date.now() + EMOTE_COOLDOWN_MS;
+    setEmoteOnCooldown(true);
+    window.setTimeout(() => {
+      if (Date.now() >= emoteCooldownUntilRef.current) {
+        setEmoteOnCooldown(false);
+      }
+    }, EMOTE_COOLDOWN_MS);
+  };
+
   return (
     <div className="relative w-screen h-dvh overflow-hidden bg-black">
       {/* Loading overlay - show while session is initializing */}
@@ -439,6 +472,24 @@ function Game() {
         setControls={setControls}
         disabled={gameState !== 'playing' || sessionLoading}
       />
+
+      {/* In-game emote playback — visual only, physics keep running (MIE-17) */}
+      <EmoteOverlay
+        item={playingEmote}
+        variant="hud"
+        onDone={() => setPlayingEmote(null)}
+      />
+      {gameState === 'playing' && equippedEmote && (
+        <button
+          type="button"
+          onClick={handlePlayEmote}
+          disabled={!!playingEmote || emoteOnCooldown}
+          className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-10 min-h-[44px] min-w-[44px] px-3 rounded-lg bg-purple-600/80 text-white text-xs font-semibold backdrop-blur-sm border border-white/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label="Play emote"
+        >
+          {emoteOnCooldown ? '⏳' : '✨'} Emote
+        </button>
+      )}
 
       {/* HUD - Display current stats */}
       {gameState === 'playing' && (

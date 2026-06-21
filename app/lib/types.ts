@@ -55,6 +55,43 @@ export interface User {
   playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
   auroraShards?: number; // Saved Aurora Shard progress, capped at 12
   auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
+  ownedAvatarItems?: string[]; // Avatar item catalog ids the player owns (MIE-12)
+  equippedAvatar?: EquippedAvatar; // One equipped item per body slot (MIE-12)
+}
+
+/** Body slot types for avatar items — one equipped item per slot (MIE-12). */
+export type AvatarPartType =
+  | 'shirt'
+  | 'hair'
+  | 'pants'
+  | 'arm'
+  | 'leg'
+  | 'hand'
+  | 'foot'
+  | 'sock'
+  | 'emote'
+  | 'accessory';
+
+/** Equipped avatar item ids keyed by body slot. */
+export type EquippedAvatar = Record<AvatarPartType, string | null>;
+
+/**
+ * Catalog entry for a purchasable/wearable avatar item (Firestore avatarItems/{id}).
+ */
+export interface AvatarItem {
+  id: string;
+  name: string;
+  description: string;
+  creatorUsername: string; // HWI, NES, etc. or SYSTEM for built-ins
+  partType: AvatarPartType;
+  gemPrice: number; // 0 = free
+  onSale: boolean;
+  stock: number | null; // null = unlimited; when 0 and onSale, shows sold out
+  previewImageUrl?: string; // Thumbnail on shop card + mannequin layer
+  modelUrl?: string; // Sketchfab or model URL
+  shirtTextureUrl?: string; // Optional shirt photo upload URL
+  createdAtMs: number;
+  updatedAtMs: number;
 }
 
 /**

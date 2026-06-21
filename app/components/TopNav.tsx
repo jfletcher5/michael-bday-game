@@ -33,6 +33,7 @@ export default function TopNav({
   };
 
   const handleShop = () => router.push('/shop');
+  const handleAvatars = () => router.push('/avatars');
   const handleSeason = () => router.push(`/season/${getCurrentSeasonId()}`);
   const handleSettings = () => router.push('/settings');
   const handleAdmin = () => router.push('/admin');
@@ -72,6 +73,15 @@ export default function TopNav({
             >
               <span className="text-lg">🛒</span>
               <span className="hidden sm:inline text-sm">Shop</span>
+            </button>
+          )}
+          {user && (
+            <button
+              onClick={handleAvatars}
+              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+            >
+              <span className="text-lg">👤</span>
+              <span className="hidden sm:inline text-sm">Avatars</span>
             </button>
           )}
           {showSettingsButton && user && (
