@@ -5,7 +5,7 @@ import { User } from '../lib/types';
 import { logout } from '../lib/auth';
 import { formatPrice } from '../lib/ballTypes';
 import { getCurrentSeasonId, getCurrentSeasonConfig } from '../lib/seasons';
-import { getProPassConfig, isProPassActive, isProPassUpcoming } from '../lib/proPass';
+import { getProPassConfig, isProPassActive, isProPassStarted } from '../lib/proPass';
 
 interface TopNavProps {
   user: User | null;
@@ -43,7 +43,7 @@ export default function TopNav({
   const showProPassButton =
     !!user &&
     (isProPassActive() ||
-      isProPassUpcoming() ||
+      !isProPassStarted() ||
       user.proPassData?.passId === proPassConfig.id);
 
   const bgClass = transparent
