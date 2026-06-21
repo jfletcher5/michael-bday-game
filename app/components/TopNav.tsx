@@ -33,6 +33,7 @@ export default function TopNav({
   };
 
   const handleShop = () => router.push('/shop');
+  const handleAvatars = () => router.push('/avatars');
   const handleSeason = () => router.push(`/season/${getCurrentSeasonId()}`);
   const handleSettings = () => router.push('/settings');
   const handleAdmin = () => router.push('/admin');
@@ -46,20 +47,24 @@ export default function TopNav({
       !isProPassStarted() ||
       user.proPassData?.passId === proPassConfig.id);
 
-  const bgClass = transparent
-    ? 'bg-black/30 backdrop-blur-sm'
-    : 'bg-white shadow-md';
+  // Static surface (no hover) for stat/username containers.
+  const surfaceClass = transparent
+    ? 'bg-white/15 backdrop-blur-md ring-1 ring-white/25'
+    : 'bg-white ring-1 ring-black/5 shadow-sm';
   const textClass = transparent ? 'text-white' : 'text-gray-800';
+  const hoverClass = transparent ? 'hover:bg-white/25' : 'hover:bg-gray-50';
+  // Shared style for every nav button so spacing + shape stay consistent.
+  const navButtonClass = `${surfaceClass} ${textClass} ${hoverClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-full hover:scale-[1.03] active:scale-95 transition-all flex items-center gap-1.5`;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 p-2 sm:p-3">
-      <div className="flex justify-between items-center max-w-6xl mx-auto gap-2">
+      <div className="animate-drop-in flex justify-between items-center max-w-6xl mx-auto gap-2">
         {/* Left Side - Season & Shop Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {showSeasonButton && seasonConfig && (
             <button
               onClick={handleSeason}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">{seasonConfig.emoji}</span>
               <span className="hidden sm:inline text-sm">Season</span>
@@ -68,16 +73,25 @@ export default function TopNav({
           {showShopButton && (
             <button
               onClick={handleShop}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">🛒</span>
               <span className="hidden sm:inline text-sm">Shop</span>
             </button>
           )}
+          {user && (
+            <button
+              onClick={handleAvatars}
+              className={navButtonClass}
+            >
+              <span className="text-lg">👤</span>
+              <span className="hidden sm:inline text-sm">Avatars</span>
+            </button>
+          )}
           {showSettingsButton && user && (
             <button
               onClick={handleSettings}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">⚙️</span>
               <span className="hidden sm:inline text-sm">Settings</span>
@@ -87,7 +101,7 @@ export default function TopNav({
           {showProPassButton && !user.isAdmin && (
             <button
               onClick={handleProPass}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">{proPassConfig.emoji}</span>
               <span className="hidden sm:inline text-sm">Pro Pass</span>
@@ -96,7 +110,7 @@ export default function TopNav({
           {user?.isAdmin && (
             <button
               onClick={handleAdmin}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">🛠️</span>
               <span className="hidden sm:inline text-sm">Admin</span>
@@ -106,7 +120,7 @@ export default function TopNav({
           {showProPassButton && user?.isAdmin && (
             <button
               onClick={handleProPass}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-3 sm:px-4 rounded-lg hover:scale-105 transition-all flex items-center gap-1.5`}
+              className={navButtonClass}
             >
               <span className="text-lg">{proPassConfig.emoji}</span>
               <span className="hidden sm:inline text-sm">Pro Pass</span>
@@ -119,7 +133,7 @@ export default function TopNav({
           {user ? (
             <>
               {/* Stats Display */}
-              <div className={`${bgClass} ${textClass} min-h-[44px] py-2 px-2 sm:px-3 rounded-lg flex items-center gap-2 sm:gap-3 text-xs sm:text-sm`}>
+              <div className={`${surfaceClass} ${textClass} min-h-[44px] py-2 px-3 sm:px-4 rounded-full flex items-center gap-2 sm:gap-3 text-xs sm:text-sm`}>
                 <div className="flex items-center gap-1">
                   <span className="text-base sm:text-lg">📏</span>
                   <span className="font-medium">{formatPrice(user.totalMeters)}m</span>
@@ -137,7 +151,7 @@ export default function TopNav({
               </div>
 
               {/* Username & Logout */}
-              <div className={`${bgClass} ${textClass} min-h-[44px] py-2 px-2 sm:px-3 rounded-lg flex items-center gap-2`}>
+              <div className={`${surfaceClass} ${textClass} min-h-[44px] py-2 px-3 sm:px-4 rounded-full flex items-center gap-2`}>
                 <span className="font-bold text-xs sm:text-sm">{user.username}</span>
                 <button
                   onClick={handleLogout}
@@ -150,7 +164,7 @@ export default function TopNav({
           ) : (
             <button
               onClick={() => router.push('/login')}
-              className={`${bgClass} ${textClass} font-medium min-h-[44px] py-2 px-4 rounded-lg hover:scale-105 transition-all`}
+              className={`${surfaceClass} ${textClass} ${hoverClass} font-medium min-h-[44px] py-2 px-5 rounded-full hover:scale-[1.03] active:scale-95 transition-all`}
             >
               Login
             </button>

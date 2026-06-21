@@ -7,6 +7,7 @@ import { User, PlayerSettings } from '../lib/types';
 import { usePlayerSettings } from '../components/PlayerSettingsProvider';
 import MenuBackground from '../components/MenuBackground';
 import TopNav from '../components/TopNav';
+import { Alert } from '../components/ui';
 import {
   ZOOM_MIN,
   ZOOM_MAX,
@@ -126,9 +127,9 @@ export default function SettingsPage() {
     <MenuBackground className="min-h-screen flex flex-col items-center justify-center p-4 py-20 sm:py-24">
       <TopNav user={user} showShopButton showSeasonButton transparent />
 
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-2xl mx-2 sm:mx-4 my-auto">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-1">Settings</h1>
+      <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-2xl mx-2 sm:mx-4 my-auto animate-page-in">
+        <div className="text-center mb-6 sm:mb-7">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1">⚙️ Settings</h1>
           <p className="text-sm text-gray-600">Customize zoom and menu colors</p>
         </div>
 
@@ -227,21 +228,13 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {applyError && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-600 text-center">{applyError}</p>
-          </div>
-        )}
-        {applySuccess && (
-          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
-            <p className="text-sm text-green-600 text-center">{applySuccess}</p>
-          </div>
-        )}
+        {applyError && <Alert className="mb-4">{applyError}</Alert>}
+        {applySuccess && <Alert tone="success" className="mb-4">{applySuccess}</Alert>}
 
         <button
           type="button"
           onClick={() => router.push('/')}
-          className="w-full min-h-[48px] py-3 px-6 rounded-lg bg-gray-200 text-gray-800 font-semibold hover:bg-gray-300 transition-all"
+          className="w-full min-h-[52px] py-3 px-6 rounded-xl bg-gray-100 text-gray-800 font-semibold hover:bg-gray-200 active:scale-95 transition-all"
         >
           Back to Menu
         </button>

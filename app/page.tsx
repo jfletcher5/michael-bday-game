@@ -4,9 +4,15 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser as persistCurrentUser } from './lib/auth';
-import { getUserData, updateUserAvatar } from './lib/firestore';
-import { User } from './lib/types';
-import { AVATAR_OPTIONS, getAvatarUrl } from './lib/avatars';
+import {
+  ensureUserAvatarMigration,
+  getUserData,
+  subscribeToAvatarItems,
+} from './lib/firestore';
+import { User, AvatarItem } from './lib/types';
+import { getAvatarUrl } from './lib/avatars';
+import { mergeAvatarCatalog, getEquippedAvatarItems } from './lib/avatarItems';
+import AvatarMannequin from './components/AvatarMannequin';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining } from './lib/seasons';
 import { formatPrice } from './lib/ballTypes';
 import TopNav from './components/TopNav';
@@ -21,6 +27,7 @@ export default function Home() {
   const [selectedAvatarId, setSelectedAvatarId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [avatarCatalog, setAvatarCatalog] = useState<AvatarItem[]>([]);
 
   // Load player identity and user data on mount
   useEffect(() => {
@@ -48,8 +55,21 @@ export default function Home() {
       }
     });
 
+    // Migrate legacy users to starter avatar items (MIE-12)
+    ensureUserAvatarMigration(user.username).then((migrated) => {
+      if (!cancelled) {
+        setCurrentUser(migrated);
+        persistCurrentUser(migrated);
+      }
+    });
+
+    const unsubAvatars = subscribeToAvatarItems((items) => {
+      if (!cancelled) setAvatarCatalog(mergeAvatarCatalog(items));
+    });
+
     return () => {
       cancelled = true;
+      unsubAvatars();
     };
   }, [router]);
   
@@ -59,24 +79,7 @@ export default function Home() {
     router.push('/login');
   };
 
-  // Persist avatar choice to Firestore + cached user so the selection survives reloads.
-  const handleSelectAvatar = (avatarId: number) => {
-    setSelectedAvatarId(avatarId);
-    if (!currentUser || avatarId === currentUser.avatarId) return;
-
-    const optimistic: User = { ...currentUser, avatarId };
-    setCurrentUser(optimistic);
-    persistCurrentUser(optimistic);
-
-    updateUserAvatar(currentUser.username, avatarId)
-      .then((updated) => {
-        setCurrentUser(updated);
-        persistCurrentUser(updated);
-      })
-      .catch((err) => {
-        console.error('Failed to save avatar selection:', err);
-      });
-  };
+  const handleOpenAvatars = () => router.push('/avatars');
 
   // Check if player can start game (must be logged in and have avatar selected)
   const canStartGame = currentUser !== null && selectedAvatarId !== null;
@@ -94,6 +97,10 @@ export default function Home() {
     router.push('/leaderboard');
   };
 
+  const equippedLayers = currentUser
+    ? getEquippedAvatarItems(currentUser, avatarCatalog)
+    : {};
+
   if (isLoading) {
     return null; // Prevent flash of empty state
   }
@@ -103,10 +110,10 @@ export default function Home() {
       {/* Top Navigation */}
       <TopNav user={currentUser} onLogout={handleLogout} transparent />
       
-      <main className="bg-white rounded-2xl shadow-2xl p-4 sm:p-6 md:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto">
+      <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto animate-page-in">
         {/* Game Title */}
-        <div className="text-center mb-4 sm:mb-6">
-          <h1 className="text-2xl sm:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
+        <div className="text-center mb-5 sm:mb-7">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1 sm:mb-2">
             Platform Drop
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
@@ -116,42 +123,35 @@ export default function Home() {
 
         {/* Two Column Layout: Character Select (Left) | Everything Else (Right) */}
         <div className="flex flex-col md:flex-row md:gap-8">
-          {/* LEFT COLUMN: Character Selection Only */}
-          <div className="mb-4 sm:mb-6 md:mb-0 md:w-1/2">
-            <label className="block text-sm font-medium text-gray-700 mb-2 sm:mb-3">
-              Choose Your Character
+          {/* LEFT COLUMN: Avatar preview → opens avatar shop (MIE-12) */}
+          <div className="mb-4 sm:mb-6 md:mb-0 md:w-1/2 flex flex-col items-center">
+            <label className="block text-sm font-medium text-gray-700 mb-2 sm:mb-3 w-full text-center md:text-left">
+              Your Avatar
             </label>
-            <div className="grid grid-cols-3 gap-2 md:gap-3">
-              {AVATAR_OPTIONS.map((avatar) => (
-                <button
-                  key={avatar.id}
-                  onClick={() => handleSelectAvatar(avatar.id)}
-                  className={`relative p-2 sm:p-3 rounded-xl transition-all transform hover:scale-105 min-h-[60px] ${
-                    selectedAvatarId === avatar.id
-                      ? 'bg-purple-100 ring-2 ring-purple-500 shadow-md'
-                      : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
-                  aria-label={`Select ${avatar.name}`}
-                >
-                  <Image
-                    src={getAvatarUrl(avatar.id)}
-                    alt={avatar.name}
-                    width={64}
-                    height={64}
-                    className="w-full h-auto rounded-lg"
-                    unoptimized
-                  />
-                  <span className="block text-[10px] sm:text-xs text-gray-600 mt-1 font-medium">
-                    {avatar.name}
-                  </span>
-                  {selectedAvatarId === avatar.id && (
-                    <div className="absolute -top-1 -right-1 bg-purple-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
-                      ✓
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={handleOpenAvatars}
+              className="group rounded-2xl p-3 bg-purple-50 ring-2 ring-purple-200 hover:ring-purple-400 hover:-translate-y-1 hover:shadow-glow-sm transition-all duration-200"
+              aria-label="Open avatar shop"
+            >
+              <AvatarMannequin layers={equippedLayers} className="pointer-events-none" />
+              <p className="text-xs text-purple-700 font-medium mt-2 group-hover:underline">
+                Customize Avatar →
+              </p>
+            </button>
+            {currentUser && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                <span>Leaderboard:</span>
+                <Image
+                  src={getAvatarUrl(currentUser.avatarId)}
+                  alt=""
+                  width={32}
+                  height={32}
+                  className="rounded-lg"
+                  unoptimized
+                />
+              </div>
+            )}
           </div>
 
           {/* RIGHT COLUMN: Username Display, Buttons, and Instructions */}
@@ -185,7 +185,7 @@ export default function Home() {
               return (
                 <button
                   onClick={() => router.push(`/season/${currentSeasonId}`)}
-                  className="w-full mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-3 hover:shadow-md transition-all text-left"
+                  className="w-full mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-3 hover:-translate-y-0.5 hover:shadow-glow-sm transition-all duration-200 text-left"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -209,20 +209,20 @@ export default function Home() {
               <button
                 onClick={handleStartGame}
                 disabled={!canStartGame}
-                className={`w-full font-semibold min-h-[48px] py-3 px-6 rounded-lg transition-all transform shadow-lg text-sm sm:text-base ${
+                className={`w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl transition-all transform shadow-lg text-base ${
                   canStartGame
-                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-105'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-[1.02] active:scale-95'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                {canStartGame ? 'Start Game' : 'Select Character'}
+                {canStartGame ? '▶  Start Game' : 'Loading...'}
               </button>
 
               <button
                 onClick={handleViewLeaderboard}
-                className="w-full bg-gray-200 text-gray-800 font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:bg-gray-300 transition-all transform hover:scale-105 text-sm sm:text-base"
+                className="w-full bg-gray-100 text-gray-800 font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:bg-gray-200 transition-all transform hover:scale-[1.02] active:scale-95 text-base"
               >
-                View Leaderboard
+                🏆  View Leaderboard
               </button>
             </div>
 

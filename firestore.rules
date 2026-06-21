@@ -79,6 +79,12 @@ service cloud.firestore {
         allow write: if true;
       }
     }
+
+    // Avatar item catalog — read by all players; writes via creator admin UI (MIE-12).
+    match /avatarItems/{itemId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }
 

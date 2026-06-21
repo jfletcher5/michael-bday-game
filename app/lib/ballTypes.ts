@@ -82,6 +82,18 @@ export const BALL_TYPES: BallType[] = [
     description: 'The legendary marshmallow ball. Soft, sweet, and extremely rare!',
   },
   {
+    id: 'poop',
+    name: 'Poop Ball',
+    price: 5_000_000,
+    gemPrice: 200_000,
+    color: '#8B4513',
+    strokeColor: '#5D4037',
+    isDefault: false,
+    // Official 💩 emoji via Twemoji (Unicode U+1F4A9 — same source as other emoji balls).
+    imageUrl: `${TWEMOJI_BASE}/1f4a9.svg`,
+    description: 'A legendary 💩 ball. Buy with coins or gems!',
+  },
+  {
     id: 'jester-clown',
     name: 'Jester Clown Ball',
     price: 10000,
