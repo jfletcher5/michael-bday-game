@@ -66,6 +66,7 @@ export interface GameSession {
 export interface ScoreSubmitResult {
   success: boolean;
   message?: string;
+  isNewPersonalBest?: boolean;
 }
 
 // ============================================
@@ -221,6 +222,29 @@ export async function getScoresFromFirestore(
     };
   } catch (error) {
     console.error('Error fetching scores from Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Read a player's current best leaderboard entry (doc id = uppercase username).
+ * Useful for admin/debug tooling after MIE-22 one-doc-per-player migration.
+ */
+export async function getPlayerBestScore(username: string): Promise<Score | null> {
+  try {
+    const docRef = doc(db, LEADERBOARD_COLLECTION, username.toUpperCase());
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return {
+      avatarId: data.avatarId ?? 1,
+      initials: data.initials ?? username.toUpperCase(),
+      distance: data.distance ?? 0,
+      date: data.date ?? new Date().toISOString(),
+      isVip: data.isVip === true,
+    };
+  } catch (error) {
+    console.error('Error fetching player best score:', error);
     throw error;
   }
 }

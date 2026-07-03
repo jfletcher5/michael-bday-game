@@ -12,7 +12,8 @@
     "deploy:rules": "firebase deploy --only firestore:rules,storage --project michaels-web-game",
     "deploy:functions": "cd functions && npm run build && cd .. && firebase deploy --only functions --project michaels-web-game",
     "seed:seasons": "tsx scripts/seedSeasonConfigs.ts",
-    "reset:may-season": "tsx scripts/resetMaySeasonAchievements.ts"
+    "reset:may-season": "tsx scripts/resetMaySeasonAchievements.ts",
+    "migrate:leaderboard": "tsx scripts/migrateLeaderboardBestScores.ts"
   },
   "dependencies": {
     "@types/matter-js": "^0.20.2",

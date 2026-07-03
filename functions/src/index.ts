@@ -187,6 +187,7 @@ export const submitScore = functions.https.onCall(async (data, context) => {
     
     // All validations passed - snapshot VIP status for leaderboard styling
     const initialsUpper = initials.toUpperCase();
+    const distanceInt = Math.floor(distance);
     let isVip = false;
     try {
       const userDoc = await db.collection(USERS_COLLECTION).doc(initialsUpper).get();
@@ -198,29 +199,45 @@ export const submitScore = functions.https.onCall(async (data, context) => {
       console.warn(`VIP lookup failed for ${initialsUpper}:`, vipLookupError);
     }
 
-    // Save the score with denormalized VIP flag
-    await db.collection(LEADERBOARD_COLLECTION).add({
-      avatarId,
-      initials: initialsUpper,
-      distance: Math.floor(distance), // Ensure integer
-      date: new Date().toISOString(),
-      isVip,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      sessionId, // Reference to the game session
-    });
-    
-    // Mark the session as used
+    // One doc per player (leaderboard/{USERNAME}) — only update on a new personal best
+    const leaderboardRef = db.collection(LEADERBOARD_COLLECTION).doc(initialsUpper);
+    const existingEntry = await leaderboardRef.get();
+    const existingDistance = existingEntry.exists
+      ? (existingEntry.data()?.distance as number | undefined) ?? 0
+      : 0;
+    const isNewPersonalBest = !existingEntry.exists || distanceInt > existingDistance;
+
+    if (isNewPersonalBest) {
+      await leaderboardRef.set({
+        avatarId,
+        initials: initialsUpper,
+        distance: distanceInt,
+        date: new Date().toISOString(),
+        isVip,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        sessionId,
+      });
+      console.log(`Leaderboard updated (new best): ${initialsUpper} - ${distanceInt}m`);
+    } else {
+      console.log(
+        `Run recorded but not a personal best: ${initialsUpper} - ${distanceInt}m (best: ${existingDistance}m)`
+      );
+    }
+
+    // Always mark the session as used, even when the run is not a new personal best
     await db.collection(SESSIONS_COLLECTION).doc(sessionId).update({
       used: true,
       scoreSubmittedAt: admin.firestore.FieldValue.serverTimestamp(),
       finalScore: distance,
+      leaderboardUpdated: isNewPersonalBest,
     });
-    
-    console.log(`Score submitted: ${initials} - ${distance}m (session: ${sessionId})`);
-    
+
     return {
       success: true,
-      message: 'Score submitted successfully',
+      message: isNewPersonalBest
+        ? 'Score submitted successfully'
+        : 'Run saved — your previous best score remains on the leaderboard',
+      isNewPersonalBest,
     };
   } catch (error) {
     // Re-throw HttpsErrors as-is

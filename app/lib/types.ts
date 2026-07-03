@@ -2,13 +2,14 @@
 import type Matter from 'matter-js';
 
 /**
- * Represents a score entry in the leaderboard
+ * Represents a score entry in the leaderboard.
+ * Firestore doc id is the uppercase username (leaderboard/{USERNAME}); one row per account.
  */
 export interface Score {
   avatarId: number;      // Selected avatar (1-9)
   initials: string;      // 3-letter initials (e.g., "ABC")
-  distance: number;      // Distance survived (primary ranking)
-  date: string;          // ISO date string when score was achieved
+  distance: number;      // Best distance survived (primary ranking)
+  date: string;          // ISO date string when best score was achieved
   isVip?: boolean;       // Snapshot at submit time — VIP gamepass styling on leaderboard
 }
 
