@@ -197,6 +197,7 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            npm ci
             SA_PATH="${RUNNER_TEMP}/firebase-sa-migrate.json"
             printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_PATH"
             export GOOGLE_APPLICATION_CREDENTIALS="$SA_PATH"
