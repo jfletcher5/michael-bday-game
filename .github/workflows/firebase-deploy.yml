@@ -189,3 +189,19 @@ jobs:
           firebase_deploy hosting
           firebase_deploy firestore:rules,storage
           firebase_deploy functions
+
+      # Collapse legacy per-run leaderboard rows to one best score per username (MIE-22).
+      # Idempotent: safe to run on every deploy once canonical docs exist.
+      - name: Migrate leaderboard to best-score-per-player
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            SA_PATH="${RUNNER_TEMP}/firebase-sa-migrate.json"
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_PATH"
+            export GOOGLE_APPLICATION_CREDENTIALS="$SA_PATH"
+            export FIREBASE_PROJECT_ID="${{ env.FIREBASE_PROJECT_ID }}"
+            npm run migrate:leaderboard
+          else
+            echo "::warning::Skipping leaderboard migration — FIREBASE_SERVICE_ACCOUNT not set."
+          fi
