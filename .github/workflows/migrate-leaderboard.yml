@@ -1,0 +1,41 @@
+# One-shot migration for MIE-22: collapse legacy per-run leaderboard docs.
+name: Migrate Leaderboard (MIE-22)
+
+on:
+  workflow_dispatch:
+
+env:
+  FIREBASE_PROJECT_ID: michaels-web-game
+
+jobs:
+  migrate:
+    name: Migrate leaderboard best scores
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Firebase authentication
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT secret is required."
+            exit 1
+          fi
+          SA_PATH="${RUNNER_TEMP}/firebase-sa.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$SA_PATH" >> "$GITHUB_ENV"
+          echo "FIREBASE_PROJECT_ID=${{ env.FIREBASE_PROJECT_ID }}" >> "$GITHUB_ENV"
+
+      - name: Run leaderboard migration
+        run: npm run migrate:leaderboard
