@@ -10,12 +10,12 @@ import VerifiedBadge from '../components/VerifiedBadge';
 import MenuBackground from '../components/MenuBackground';
 import { PageHeader } from '../components/ui';
 
-// Maximum number of scores shown in the scrollable leaderboard
-const MAX_SCORES = 200;
+// One row per player — show the top 100 best scores (MIE-22)
+const MAX_SCORES = 100;
 
 /**
  * Leaderboard Page
- * Displays the top scores from Firestore sorted by distance (descending)
+ * Displays the top players from Firestore sorted by best distance (descending)
  * in a single scrollable list capped at MAX_SCORES entries.
  */
 export default function Leaderboard() {
@@ -121,7 +121,7 @@ export default function Leaderboard() {
                     const isVip = score.isVip === true || vipSet.has(score.initials.toUpperCase());
                     return (
                       <tr
-                        key={index}
+                        key={score.initials}
                         className={`border-b border-gray-100 hover:bg-gray-50 transition ${
                           rank === 1 ? 'bg-yellow-50' : ''
                         } ${isVip ? 'border-2 border-yellow-400' : ''}`}
