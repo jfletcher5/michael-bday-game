@@ -58,6 +58,32 @@ export interface User {
   auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
   ownedAvatarItems?: string[]; // Avatar item catalog ids the player owns (MIE-12)
   equippedAvatar?: EquippedAvatar; // One equipped item per body slot (MIE-12)
+  pendingGifts?: PendingGift[]; // Undismissed gift notifications for recipient popup (MIE-21)
+}
+
+/**
+ * Queued gift notification shown to the recipient on login or while online (MIE-21).
+ */
+export interface PendingGift {
+  id: string;
+  fromUsername: string;
+  itemType: 'ball' | 'gamepass';
+  itemId: string; // ball id or gamepass id
+  itemLabel: string; // display name for popup, e.g. "Angel Ball"
+  createdAtMs: number;
+}
+
+/**
+ * Audit log row for a successful shop gift (MIE-21).
+ */
+export interface GiftTransaction {
+  id: string;
+  fromUsername: string;
+  toUsername: string;
+  itemType: 'ball' | 'gamepass';
+  itemId: string;
+  gemCost: number;
+  createdAtMs: number;
 }
 
 /** Body slot types for avatar items — one equipped item per slot (MIE-12). */

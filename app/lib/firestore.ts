@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings } from './types';
+import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings, PendingGift, GiftTransaction } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 import {
@@ -1162,6 +1162,15 @@ const EVENTS_COLLECTION = 'events';
 const POLLS_COLLECTION = 'polls';
 const MESSAGES_COLLECTION = 'messages';
 const SHOP_OFFERS_COLLECTION = 'shopOffers';
+const GIFT_TRANSACTIONS_COLLECTION = 'giftTransactions';
+
+/** Shop gift payload passed from the Gift modal (MIE-21). */
+export interface GiftShopItemRequest {
+  itemType: 'ball' | 'gamepass';
+  itemId: string;
+  itemLabel: string;
+  gemCost: number;
+}
 
 /**
  * List every user document. Used by the admin Players tab.
@@ -1587,5 +1596,164 @@ export async function unequipAvatarSlot(
 
   await updateDoc(userRef, { equippedAvatar: equipped });
   return { ...userData, equippedAvatar: equipped };
+}
+
+// ============================================
+// SHOP GIFTING (MIE-21)
+// ============================================
+
+/**
+ * Prefix search for gift recipient picker — reuses the admin Players tab pattern.
+ * Returns up to 20 usernames matching the query (case-insensitive).
+ */
+export async function searchUsersByPrefix(prefix: string, limitCount = 20): Promise<User[]> {
+  const term = prefix.trim().toUpperCase();
+  if (term.length < 1) return [];
+
+  const allUsers = await getAllUsers();
+  return allUsers
+    .filter((u) => u.username.toUpperCase().startsWith(term))
+    .slice(0, limitCount);
+}
+
+/** Read undismissed gift notifications for the logged-in recipient. */
+export async function getPendingGifts(username: string): Promise<PendingGift[]> {
+  const user = await getUserData(username);
+  return user?.pendingGifts ?? [];
+}
+
+/**
+ * Live listener on the recipient user doc so online players see gift popups immediately.
+ */
+export function subscribeToPendingGifts(
+  username: string,
+  onChange: (gifts: PendingGift[]) => void,
+): Unsubscribe {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  return onSnapshot(userRef, (snap) => {
+    if (!snap.exists()) {
+      onChange([]);
+      return;
+    }
+    const data = snap.data() as User;
+    onChange(data.pendingGifts ?? []);
+  });
+}
+
+/** Remove one pending gift after the recipient dismisses the popup. */
+export async function ackPendingGift(username: string, giftId: string): Promise<void> {
+  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) return;
+
+  const userData = userDoc.data() as User;
+  const remaining = (userData.pendingGifts ?? []).filter((g) => g.id !== giftId);
+  await updateDoc(userRef, { pendingGifts: remaining });
+}
+
+/**
+ * Atomically gift a gem-priced shop item to another player.
+ * Debits gifter gems, grants item to recipient, queues popup notification.
+ */
+export async function giftShopItem(
+  fromUsername: string,
+  toUsername: string,
+  request: GiftShopItemRequest,
+): Promise<{ gifter: User; recipientUsername: string }> {
+  const gifterKey = fromUsername.toUpperCase();
+  const recipientKey = toUsername.toUpperCase();
+
+  if (gifterKey === recipientKey) {
+    throw new Error('You cannot gift items to yourself');
+  }
+
+  const gifterRef = doc(db, USERS_COLLECTION, gifterKey);
+  const recipientRef = doc(db, USERS_COLLECTION, recipientKey);
+  const giftId = `gift-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const gifterUser = await runTransaction(db, async (transaction) => {
+    const [gifterDoc, recipientDoc] = await Promise.all([
+      transaction.get(gifterRef),
+      transaction.get(recipientRef),
+    ]);
+
+    if (!gifterDoc.exists()) throw new Error('Gifter not found');
+    if (!recipientDoc.exists()) throw new Error('Player not found');
+
+    const gifterData = gifterDoc.data() as User;
+    const recipientData = recipientDoc.data() as User;
+    const currentGems = gifterData.totalGems ?? 0;
+
+    if (currentGems < request.gemCost) {
+      throw new Error('Not enough gems');
+    }
+
+    // Block when recipient already owns the item or gamepass.
+    if (request.itemType === 'ball') {
+      if (recipientData.ownedBalls.includes(request.itemId)) {
+        throw new Error('Player already has Item');
+      }
+    } else if (request.itemType === 'gamepass') {
+      const passes = recipientData.gamepasses ?? {};
+      if (request.itemId === 'vip' && passes.vip) {
+        throw new Error('Player already has Item');
+      }
+      if (request.itemId === 'doubleCash' && passes.doubleCash) {
+        throw new Error('Player already has Item');
+      }
+    }
+
+    const pendingGift: PendingGift = {
+      id: giftId,
+      fromUsername: gifterKey,
+      itemType: request.itemType,
+      itemId: request.itemId,
+      itemLabel: request.itemLabel,
+      createdAtMs: Date.now(),
+    };
+
+    const recipientUpdates: Record<string, unknown> = {
+      pendingGifts: arrayUnion(pendingGift),
+    };
+
+    if (request.itemType === 'ball') {
+      recipientUpdates.ownedBalls = arrayUnion(request.itemId);
+    } else {
+      const ownedPasses = recipientData.gamepasses ?? {};
+      recipientUpdates.gamepasses = {
+        ...ownedPasses,
+        [request.itemId]: true,
+      };
+      // VIP gamepass also grants the VIP ball, matching self-purchase behavior.
+      if (request.itemId === 'vip' && !recipientData.ownedBalls.includes(VIP_BALL_ID)) {
+        recipientUpdates.ownedBalls = arrayUnion(VIP_BALL_ID);
+      }
+    }
+
+    transaction.update(gifterRef, {
+      totalGems: currentGems - request.gemCost,
+    });
+    transaction.update(recipientRef, recipientUpdates);
+
+    // Audit log — written in the same transaction for consistency.
+    const auditRef = doc(collection(db, GIFT_TRANSACTIONS_COLLECTION));
+    const auditRow: GiftTransaction = {
+      id: auditRef.id,
+      fromUsername: gifterKey,
+      toUsername: recipientKey,
+      itemType: request.itemType,
+      itemId: request.itemId,
+      gemCost: request.gemCost,
+      createdAtMs: Date.now(),
+    };
+    transaction.set(auditRef, auditRow);
+
+    return {
+      ...gifterData,
+      totalGems: currentGems - request.gemCost,
+    };
+  });
+
+  return { gifter: gifterUser, recipientUsername: recipientKey };
 }
 

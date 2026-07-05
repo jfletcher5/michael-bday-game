@@ -232,6 +232,12 @@ export function isBallOwned(ballId: string, ownedBalls: string[]): boolean {
   return ballType.isDefault || ownedBalls.includes(ballId);
 }
 
+/** True when a ball can be gifted with gems (MIE-21) — gem-priced, not Aurora/event-only. */
+export function isBallGiftable(ball: BallType): boolean {
+  if (ball.id === AURORA_BALL_ID || ball.id === VIP_BALL_ID) return false;
+  return typeof ball.gemPrice === 'number' && ball.gemPrice > 0;
+}
+
 /**
  * Format price for display (adds commas and handles large numbers)
  * @param price - The price in coins
