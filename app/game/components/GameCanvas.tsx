@@ -20,6 +20,7 @@ import {
   BreakableWall,
   GameEvent,
 } from '@/app/lib/types';
+import { LEVEL_WORLD_WIDTH, LEVEL_WORLD_HEIGHT } from '@/app/lib/levelUtils';
 
 interface EventParticle {
   emoji: string;
@@ -148,9 +149,13 @@ interface GameCanvasProps {
   customPlatforms?: Platform[];
   customBombs?: Bomb[];
   levelSkyColor?: string;
-  /** 1 = scroll down (default), -1 = scroll up in level mode (MIE-19). */
+  /** Scroll direction vector for level mode (MIE-19). */
+  levelScrollVector?: { x: number; y: number };
+  /** @deprecated Use levelScrollVector */
   levelScrollSign?: number;
   ballStartPosition?: { x: number; y: number };
+  /** When true, canvas uses fixed virtual world dimensions (MIE-19). */
+  fixedLevelWorld?: boolean;
   ballColor?: string;       // Optional custom ball color
   ballStrokeColor?: string; // Optional custom ball stroke color
   ballImageUrl?: string;    // Optional image URL for themed balls
@@ -219,8 +224,10 @@ export default function GameCanvas({
   customPlatforms = [],
   customBombs = [],
   levelSkyColor,
+  levelScrollVector,
   levelScrollSign = 1,
   ballStartPosition,
+  fixedLevelWorld = false,
   ballColor = '#ff6b6b',
   ballStrokeColor = '#cc0000',
   ballImageUrl,
@@ -282,6 +289,12 @@ export default function GameCanvas({
   const auroraShardCountRef = useRef(auroraShardCount);
   const auroraBallUnlockedRef = useRef(auroraBallUnlocked);
   const auroraShardNotificationRef = useRef<AuroraShardNotification | null>(null);
+  const finishTriggeredRef = useRef(false);
+  const modeRef = useRef(mode);
+  const fixedLevelWorldRef = useRef(fixedLevelWorld);
+  const levelScrollVectorRef = useRef(
+    levelScrollVector ?? { x: 0, y: levelScrollSign },
+  );
 
   // Callback refs to avoid game-loop recreation when props change.
   const onDistanceUpdateRef = useRef(onDistanceUpdate);
@@ -295,6 +308,12 @@ export default function GameCanvas({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+    fixedLevelWorldRef.current = fixedLevelWorld;
+    levelScrollVectorRef.current = levelScrollVector ?? { x: 0, y: levelScrollSign };
+  }, [mode, fixedLevelWorld, levelScrollVector, levelScrollSign]);
 
   useEffect(() => {
     onDistanceUpdateRef.current = onDistanceUpdate;
@@ -643,6 +662,7 @@ export default function GameCanvas({
     const initialPlatforms: Matter.Body[] = [];
     if (mode === 'level' && customPlatforms.length > 0) {
       customPlatforms.forEach(platformData => {
+        const angle = ((platformData.rotation ?? 0) * Math.PI) / 180;
         const platform = Matter.Bodies.rectangle(
           platformData.x + platformData.width / 2,
           platformData.y + platformData.height / 2,
@@ -652,6 +672,7 @@ export default function GameCanvas({
             isStatic: true,
             label: platformData.isFinish ? 'finish' : 'platform',
             friction: 0.8,
+            angle,
           }
         );
         initialPlatforms.push(platform);
@@ -725,6 +746,8 @@ export default function GameCanvas({
       });
     }
     bombsRef.current = initialBombs;
+
+    finishTriggeredRef.current = false;
 
     // Reset dynamic run state.
     scrollDistanceRef.current = 0;
@@ -1025,25 +1048,30 @@ export default function GameCanvas({
 
     // Scroll platforms and bombs while the world is moving.
     // Multiply by dtScale so scroll speed is consistent across refresh rates.
-    const frameScroll = scrollSpeedRef.current * dtScale * (mode === 'level' ? levelScrollSign : 1);
+    const scrollVec = levelScrollVectorRef.current;
+    const frameScroll = scrollSpeedRef.current * dtScale;
+    const dx = mode === 'level' ? frameScroll * scrollVec.x : 0;
+    const dy = mode === 'level' ? frameScroll * scrollVec.y : frameScroll;
     platformsRef.current.forEach(platform => {
       Matter.Body.setPosition(platform, {
-        x: platform.position.x,
-        y: platform.position.y - frameScroll,
+        x: platform.position.x - dx,
+        y: platform.position.y - dy,
       });
 
-      if (mode === 'level' && platform.label === 'finish') {
+      if (mode === 'level' && platform.label === 'finish' && !finishTriggeredRef.current) {
         const distanceToFinish = Math.hypot(
           ball.position.x - platform.position.x,
           ball.position.y - platform.position.y
         );
         if (distanceToFinish < 30 && onFinishRef.current) {
+          finishTriggeredRef.current = true;
           onFinishRef.current();
         }
       }
     });
     bombsRef.current.forEach(bomb => {
-      bomb.y -= frameScroll;
+      bomb.x -= dx;
+      bomb.y -= dy;
     });
 
     // The 300m wall should scroll with the world until the player reaches the platform.
@@ -1059,7 +1087,7 @@ export default function GameCanvas({
       }
     }
 
-    scrollDistanceRef.current += frameScroll;
+    scrollDistanceRef.current += Math.abs(dy) + Math.abs(dx) * 0.25;
     onDistanceUpdateRef.current(Math.floor(scrollDistanceRef.current / 10));
 
     // Only add/remove random platforms outside active boss fights.
@@ -1422,7 +1450,7 @@ export default function GameCanvas({
     isPlaying,
     maybeAwardAuroraShard,
     mode,
-    levelScrollSign,
+    levelScrollVector,
     levelSkyColor,
     reviveSignalRef,
     scheduleNextFrame,
@@ -1432,14 +1460,21 @@ export default function GameCanvas({
   ]);
 
   const handleResize = useCallback(() => {
-    // Resize canvas to viewport dimensions. Use visualViewport on mobile
-    // to account for browser chrome (URL bar, toolbar).
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Level mode uses fixed virtual world coordinates (MIE-19).
+    if (fixedLevelWorldRef.current || modeRef.current === 'level') {
+      canvas.width = LEVEL_WORLD_WIDTH;
+      canvas.height = LEVEL_WORLD_HEIGHT;
+      scrollSpeedRef.current = scrollSpeedForHeight(LEVEL_WORLD_HEIGHT, INITIAL_SCROLL_SECONDS);
+      originalScrollSpeedRef.current = scrollSpeedRef.current;
+      return;
+    }
+
     const prevHeight = canvas.height;
     canvas.width = window.innerWidth;
     canvas.height = window.visualViewport?.height ?? window.innerHeight;
-    // Scale current scroll speed proportionally so visual speed stays constant.
     if (prevHeight > 0 && scrollSpeedRef.current > 0) {
       const ratio = canvas.height / prevHeight;
       scrollSpeedRef.current *= ratio;
@@ -1536,7 +1571,7 @@ export default function GameCanvas({
       )}
       <canvas
         ref={canvasRef}
-        className="w-full h-full relative"
+        className={fixedLevelWorld ? 'w-full h-full max-w-4xl mx-auto object-contain relative' : 'w-full h-full relative'}
         style={{ display: 'block', backgroundColor: tacoRainActive ? 'transparent' : undefined, zIndex: 1 }}
       />
     </div>

@@ -42,6 +42,7 @@ function Game() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const levelId = searchParams.get('levelId');
+  const returnTo = searchParams.get('returnTo');
   const raceId = searchParams.get('raceId');
   const { settings } = usePlayerSettings();
   
@@ -92,8 +93,10 @@ function Game() {
   const [sessionLoading, setSessionLoading] = useState(true);
 
   const [levelData, setLevelData] = useState<LevelDocument | null>(null);
+  const [levelLoadState, setLevelLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [raceOpponentMeters, setRaceOpponentMeters] = useState(0);
   const isLevelRun = !!levelId;
+  const isLevelReady = isLevelRun && levelLoadState === 'ready' && !!levelData;
 
   const syncCurrentUser = useCallback((updatedUser: User) => {
     currentUserRef.current = updatedUser;
@@ -210,6 +213,9 @@ function Game() {
       updateRaceProgress(raceId, currentUserRef.current.username, newDistance).catch(() => {});
     }
 
+    // Level runs do not accrue infinite-mode economy rewards (MIE-19).
+    if (isLevelRun) return;
+
     // Coins: 20 per 50m (40 with 2x Cash gamepass)
     const coinPerMilestone = hasDoubleCash(currentUserRef.current) ? 40 : 20;
     const newCoinMilestone = Math.floor(newDistance / 50);
@@ -226,7 +232,7 @@ function Game() {
       gemsEarnedRef.current += gemMilestonesReached * 20;
       lastGemMilestoneRef.current = newGemMilestone;
     }
-  }, [raceId]);
+  }, [raceId, isLevelRun]);
 
   const handleAuroraShardAward = useCallback(async () => {
     const user = currentUserRef.current;
@@ -238,15 +244,30 @@ function Game() {
   }, [syncCurrentUser]);
 
   useEffect(() => {
-    if (!levelId) return;
-    getLevelDocument(levelId).then((lvl) => {
-      if (lvl) {
-        setLevelData(lvl);
-        if (currentUserRef.current && lvl.authorUsername !== currentUserRef.current.username) {
-          incrementLevelPlayCount(levelId).catch(() => {});
+    if (!levelId) {
+      setLevelLoadState('idle');
+      setLevelData(null);
+      return;
+    }
+    const user = getCurrentUser();
+    setLevelLoadState('loading');
+    getLevelDocument(levelId, user)
+      .then((lvl) => {
+        if (!lvl) {
+          setLevelLoadState('error');
+          setLevelData(null);
+          return;
         }
-      }
-    });
+        setLevelData(lvl);
+        setLevelLoadState('ready');
+        if (user && lvl.authorUsername !== user.username) {
+          incrementLevelPlayCount(levelId, user).catch(() => {});
+        }
+      })
+      .catch(() => {
+        setLevelLoadState('error');
+        setLevelData(null);
+      });
   }, [levelId]);
 
   useEffect(() => {
@@ -270,7 +291,7 @@ function Game() {
     setDisplayGems(gemsEarnedRef.current);
 
     const extraBalls = currentUserRef.current?.extraBalls ?? 0;
-    if (extraBalls > 0) {
+    if (extraBalls > 0 && !isLevelRun) {
       setGameState('revivePrompt');
       return;
     }
@@ -357,8 +378,14 @@ function Game() {
 
   // Handle finishing game - save score via Cloud Function ONLY (anti-cheat protection)
   const handleFinish = async () => {
-    // Hide boss UI when transitioning to completion flow.
     setBossHud(null);
+
+    // Custom level completion — no stats or leaderboard writes (MIE-19).
+    if (isLevelRun) {
+      setGameState('finished');
+      return;
+    }
+
     setGameState('finished');
     
     const identity = getIdentity();
@@ -446,10 +473,9 @@ function Game() {
   
   // Get the current ball type for rendering
   const ballType = getSelectedBallType();
-  const levelPlatforms: Platform[] = levelData ? levelDocumentToPlatforms(levelData) : EMPTY_CUSTOM_PLATFORMS;
-  const levelBombs: Bomb[] = levelData ? levelDocumentToBombs(levelData) : [];
-  const scrollMul = levelData ? scrollDirectionMultiplier(levelData.screenScroll) : { x: 0, y: 1 };
-  const levelScrollSign = scrollMul.y !== 0 ? scrollMul.y : 1;
+  const levelPlatforms: Platform[] = isLevelReady && levelData ? levelDocumentToPlatforms(levelData) : EMPTY_CUSTOM_PLATFORMS;
+  const levelBombs: Bomb[] = isLevelReady && levelData ? levelDocumentToBombs(levelData) : [];
+  const levelScrollVector = isLevelReady && levelData ? scrollDirectionMultiplier(levelData.screenScroll) : { x: 0, y: 1 };
 
   const equippedLayers = userSnapshot
     ? getEquippedAvatarItems(userSnapshot, avatarCatalog)
@@ -475,26 +501,48 @@ function Game() {
       {sessionLoading && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/90 backdrop-blur-sm">
           <div className="text-center">
-            <div className="text-white text-base sm:text-xl font-semibold mb-4 px-4">Initializing secure game session...</div>
+            <div className="text-white text-base sm:text-xl font-semibold mb-4 px-4">Initializing secure game session…</div>
             <div className="text-gray-400 text-sm">Please wait</div>
+          </div>
+        </div>
+      )}
+
+      {isLevelRun && levelLoadState === 'loading' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/90 backdrop-blur-sm">
+          <div className="text-center text-white">
+            <p className="text-lg font-semibold mb-2">Loading level…</p>
+          </div>
+        </div>
+      )}
+
+      {isLevelRun && levelLoadState === 'error' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md text-center">
+            <h2 className="text-xl font-bold text-red-600 mb-2">Level Not Found</h2>
+            <p className="text-gray-600 mb-4">This level is missing, private, or archived.</p>
+            <button type="button" onClick={() => router.push(returnTo === 'studio' ? '/studio' : '/levels')} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+              Back
+            </button>
           </div>
         </div>
       )}
       
       {/* 2D Game Canvas */}
+      {(!isLevelRun || isLevelReady) && (
       <GameCanvas
         controls={controls}
         onDistanceUpdate={handleDistanceUpdate}
         onGameOver={handleGameOver}
         onFinish={handleFinish}
         onBossHudUpdate={setBossHud}
-        isPlaying={gameState === 'playing' && !sessionLoading}
+        isPlaying={gameState === 'playing' && !sessionLoading && (!isLevelRun || isLevelReady)}
         reviveSignalRef={reviveSignalRef}
-        mode={levelData ? 'level' : 'infinite'}
-        customPlatforms={levelData ? levelPlatforms : EMPTY_CUSTOM_PLATFORMS}
+        mode={isLevelReady ? 'level' : 'infinite'}
+        customPlatforms={isLevelReady ? levelPlatforms : EMPTY_CUSTOM_PLATFORMS}
         customBombs={levelBombs}
         levelSkyColor={levelData?.skyColor}
-        levelScrollSign={levelScrollSign}
+        levelScrollVector={levelScrollVector}
+        fixedLevelWorld={isLevelReady}
         ballStartPosition={levelData?.ballSpawner ?? undefined}
         ballColor={ballType.color}
         ballStrokeColor={ballType.strokeColor}
@@ -505,6 +553,7 @@ function Game() {
         auroraBallUnlocked={auroraProgress.unlocked}
         onAuroraShardAward={handleAuroraShardAward}
       />
+      )}
 
       {raceId && (
         <div className="absolute top-20 right-4 z-20 bg-black/70 text-white px-3 py-2 rounded-lg text-sm">
@@ -618,8 +667,8 @@ function Game() {
       {gameState === 'gameOver' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
-            <h2 className="text-3xl font-bold text-red-600 mb-4">Game Over!</h2>
-            <p className="text-gray-600 mb-6">You fell off the platforms!</p>
+            <h2 className="text-3xl font-bold text-red-600 mb-4">{isLevelRun ? 'Level Failed' : 'Game Over!'}</h2>
+            <p className="text-gray-600 mb-6">{isLevelRun ? 'Try again or return to the studio.' : 'You fell off the platforms!'}</p>
             
             <div className="bg-gray-100 rounded-lg p-4 mb-6">
               <div className="flex justify-center gap-6">
@@ -642,10 +691,12 @@ function Game() {
               </div>
             </div>
 
-            {scoreSaved ? (
-              <p className="text-sm text-green-600 mb-4">Score saved automatically</p>
-            ) : (
-              <p className="text-sm text-gray-400 mb-4">Run too short to save to leaderboard</p>
+            {!isLevelRun && (
+              scoreSaved ? (
+                <p className="text-sm text-green-600 mb-4">Score saved automatically</p>
+              ) : (
+                <p className="text-sm text-gray-400 mb-4">Run too short to save to leaderboard</p>
+              )
             )}
 
             <div className="space-y-3">
@@ -653,20 +704,32 @@ function Game() {
                 onClick={handleRestart}
                 className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all transform hover:scale-105 shadow-lg"
               >
-                ▶ Play Again
+                ▶ {isLevelRun ? 'Retry Level' : 'Play Again'}
               </button>
-              <button
-                onClick={() => router.push('/leaderboard')}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
-              >
-                View Leaderboard
-              </button>
-              <button
-                onClick={handleReturnToMenu}
-                className="w-full bg-white text-gray-600 font-semibold min-h-[44px] py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
-              >
-                Main Menu
-              </button>
+              {!isLevelRun && (
+                <button
+                  onClick={() => router.push('/leaderboard')}
+                  className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+                >
+                  View Leaderboard
+                </button>
+              )}
+              {isLevelRun && (
+                <button
+                  onClick={() => router.push(returnTo === 'studio' && levelId ? `/studio?id=${levelId}` : '/levels')}
+                  className="w-full bg-white text-gray-600 font-semibold min-h-[44px] py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
+                >
+                  {returnTo === 'studio' ? 'Back to Studio' : 'Back to Levels'}
+                </button>
+              )}
+              {!isLevelRun && (
+                <button
+                  onClick={handleReturnToMenu}
+                  className="w-full bg-white text-gray-600 font-semibold min-h-[44px] py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
+                >
+                  Main Menu
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -676,9 +739,10 @@ function Game() {
       {gameState === 'finished' && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
-            <h2 className="text-3xl font-bold text-green-600 mb-4">🎉 Great Run!</h2>
-            <p className="text-gray-600 mb-2">Amazing performance!</p>
-            <p className="text-sm text-green-600 mb-6">✓ Score saved to leaderboard</p>
+            <h2 className="text-3xl font-bold text-green-600 mb-4">{isLevelRun ? 'Level Complete!' : '🎉 Great Run!'}</h2>
+            <p className="text-gray-600 mb-2">{isLevelRun ? 'You reached the finish.' : 'Amazing performance!'}</p>
+            {!isLevelRun && <p className="text-sm text-green-600 mb-6">✓ Score saved to leaderboard</p>}
+            {isLevelRun && <p className="text-sm text-gray-500 mb-6">Custom levels do not affect your main stats.</p>}
             
             <div className="bg-gray-100 rounded-lg p-4 mb-6">
               <div className="flex justify-center gap-6">
@@ -702,28 +766,53 @@ function Game() {
             </div>
 
             <div className="space-y-3">
-              <button
-                onClick={() => router.push('/leaderboard')}
-                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
-              >
-                View Leaderboard
-              </button>
-              <button
-                onClick={handleReturnToMenu}
-                className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
-              >
-                Main Menu
-              </button>
+              {isLevelRun ? (
+                <>
+                  <button
+                    onClick={handleRestart}
+                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold py-3 px-6 rounded-lg"
+                  >
+                    Play Again
+                  </button>
+                  <button
+                    onClick={() => router.push(returnTo === 'studio' && levelId ? `/studio?id=${levelId}` : '/levels')}
+                    className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg border border-gray-300"
+                  >
+                    {returnTo === 'studio' ? 'Back to Studio' : 'Back to Levels'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => router.push('/leaderboard')}
+                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+                  >
+                    View Leaderboard
+                  </button>
+                  <button
+                    onClick={handleReturnToMenu}
+                    className="w-full bg-white text-gray-600 font-semibold py-2 px-6 rounded-lg hover:bg-gray-100 transition-all border border-gray-300"
+                  >
+                    Main Menu
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* Instructions overlay (shown briefly at start) */}
-      {gameState === 'playing' && displayDistance < 5 && (
+      {gameState === 'playing' && displayDistance < 5 && !isLevelRun && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 bg-black/70 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-lg backdrop-blur-sm text-center pointer-events-none max-w-[90vw]">
           <p className="text-sm sm:text-xl font-semibold">Use arrow keys to move and jump!</p>
           <p className="text-xs sm:text-sm mt-1 sm:mt-2">Land on platforms and survive as long as you can</p>
+        </div>
+      )}
+
+      {gameState === 'playing' && isLevelReady && displayDistance < 5 && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 bg-black/70 text-white px-4 sm:px-8 py-3 sm:py-4 rounded-lg backdrop-blur-sm text-center pointer-events-none max-w-[90vw]">
+          <p className="text-sm sm:text-xl font-semibold">Reach the finish platform!</p>
         </div>
       )}
     </div>

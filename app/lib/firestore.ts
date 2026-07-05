@@ -49,6 +49,7 @@ import {
   STARTER_OWNED_ITEM_IDS,
 } from './avatarItems';
 import type { AvatarItem, AvatarPartType, EquippedAvatar } from './types';
+import { normalizeLevelDocument } from './levelWorld';
 
 // Collection name in Firestore
 const LEADERBOARD_COLLECTION = 'leaderboard';
@@ -1851,71 +1852,126 @@ export async function giftShopItem(
 }
 
 // ============================================
-// LEVEL STUDIO (MIE-19)
+// LEVEL STUDIO (MIE-19) — Cloud Function-backed CRUD
 // ============================================
 
-function emptyLevelDraft(authorUsername: string): Omit<LevelDocument, 'id'> {
-  const now = Date.now();
-  return {
-    name: 'Untitled Level',
-    description: '',
-    authorUsername,
-    visibility: 'private',
-    createdAtMs: now,
-    updatedAtMs: now,
-    playCount: 0,
-    screenScroll: 'down',
-    skyColor: '#1a1a2e',
-    ballSpawner: { x: 200, y: 400 },
-    platforms: [],
-    bombs: [],
-  };
+/** Credentials bundle for secure level Cloud Functions (custom auth). */
+function levelAuth(user: User): { username: string; password: string } {
+  return { username: user.username, password: user.password };
 }
 
-export async function createLevelDocument(authorUsername: string): Promise<LevelDocument> {
-  const ref = doc(collection(db, LEVELS_COLLECTION));
-  const level: LevelDocument = { id: ref.id, ...emptyLevelDraft(authorUsername) };
-  await setDoc(ref, level);
-  return level;
+/** Create a new level via Cloud Function — author-only write. */
+export async function createLevelDocument(user: User): Promise<LevelDocument> {
+  const fn = httpsCallable<{ username: string; password: string }, LevelDocument>(functions, 'createLevel');
+  const result = await fn(levelAuth(user));
+  return normalizeLevelDocument(result.data.id, result.data as unknown as Record<string, unknown>) ?? result.data;
 }
 
-export async function updateLevelDocument(level: LevelDocument): Promise<void> {
-  await setDoc(doc(db, LEVELS_COLLECTION, level.id), {
-    ...level,
-    updatedAtMs: Date.now(),
-  });
+/** Persist level edits via Cloud Function — author-only write. */
+export async function updateLevelDocument(user: User, level: LevelDocument): Promise<LevelDocument> {
+  const fn = httpsCallable<
+    { username: string; password: string; levelId: string; level: Omit<LevelDocument, 'id'> },
+    LevelDocument
+  >(functions, 'updateLevel');
+  const { id, ...body } = level;
+  const result = await fn({ ...levelAuth(user), levelId: id, level: body });
+  return normalizeLevelDocument(result.data.id, result.data as unknown as Record<string, unknown>) ?? result.data;
 }
 
-export async function getLevelDocument(levelId: string): Promise<LevelDocument | null> {
+/** Archive a level — author-only. */
+export async function archiveLevelDocument(user: User, levelId: string): Promise<void> {
+  const fn = httpsCallable<{ username: string; password: string; levelId: string }, { success: boolean }>(
+    functions,
+    'archiveLevel',
+  );
+  await fn({ ...levelAuth(user), levelId });
+}
+
+/** Load a public level from Firestore (rules allow public read). */
+export async function getPublicLevelDocument(levelId: string): Promise<LevelDocument | null> {
   const snap = await getDoc(doc(db, LEVELS_COLLECTION, levelId));
   if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<LevelDocument, 'id'>) };
+  return normalizeLevelDocument(snap.id, snap.data() as Record<string, unknown>);
 }
 
-export async function getMyLevels(authorUsername: string): Promise<LevelDocument[]> {
-  const q = query(
-    collection(db, LEVELS_COLLECTION),
-    where('authorUsername', '==', authorUsername),
-    orderBy('updatedAtMs', 'desc'),
-    limit(50),
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LevelDocument, 'id'>) }));
+/** Load any level for play — uses CF for private levels. */
+export async function getLevelDocument(levelId: string, user?: User | null): Promise<LevelDocument | null> {
+  if (user) {
+    try {
+      const fn = httpsCallable<
+        { levelId: string; username: string; password: string },
+        LevelDocument
+      >(functions, 'getLevelForPlay');
+      const result = await fn({ levelId, ...levelAuth(user) });
+      return normalizeLevelDocument(result.data.id, result.data as unknown as Record<string, unknown>);
+    } catch {
+      return null;
+    }
+  }
+  return getPublicLevelDocument(levelId);
 }
 
+/** Author's levels including private drafts — via Cloud Function. */
+export async function getMyLevels(user: User): Promise<LevelDocument[]> {
+  const fn = httpsCallable<{ username: string; password: string }, LevelDocument[]>(functions, 'getMyLevelsSecure');
+  const result = await fn(levelAuth(user));
+  return result.data
+    .map((row) => normalizeLevelDocument(row.id, row as unknown as Record<string, unknown>))
+    .filter((l): l is LevelDocument => l !== null);
+}
+
+/** Top public levels for browse — client read of public docs only. */
 export async function getPopularPublicLevels(limitCount = 5): Promise<LevelDocument[]> {
   const q = query(
     collection(db, LEVELS_COLLECTION),
     where('visibility', '==', 'public'),
     orderBy('playCount', 'desc'),
-    limit(limitCount),
+    limit(limitCount + 10),
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LevelDocument, 'id'>) }));
+  return snap.docs
+    .map((d) => normalizeLevelDocument(d.id, d.data() as Record<string, unknown>))
+    .filter((l): l is LevelDocument => l !== null)
+    .slice(0, limitCount);
 }
 
-export async function incrementLevelPlayCount(levelId: string): Promise<void> {
-  await updateDoc(doc(db, LEVELS_COLLECTION, levelId), { playCount: increment(1) });
+/** Recent public levels for browse. */
+export async function getRecentPublicLevels(limitCount = 20): Promise<LevelDocument[]> {
+  const q = query(
+    collection(db, LEVELS_COLLECTION),
+    where('visibility', '==', 'public'),
+    orderBy('updatedAtMs', 'desc'),
+    limit(limitCount + 10),
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => normalizeLevelDocument(d.id, d.data() as Record<string, unknown>))
+    .filter((l): l is LevelDocument => l !== null)
+    .slice(0, limitCount);
+}
+
+/** Search public levels by name prefix (client-side filter on recent/popular fetch). */
+export async function searchPublicLevels(searchTerm: string, limitCount = 20): Promise<LevelDocument[]> {
+  const term = searchTerm.trim().toLowerCase();
+  const recent = await getRecentPublicLevels(50);
+  if (!term) return recent.slice(0, limitCount);
+  return recent
+    .filter(
+      (l) =>
+        l.name.toLowerCase().includes(term) ||
+        l.authorUsername.toLowerCase().includes(term) ||
+        l.description.toLowerCase().includes(term),
+    )
+    .slice(0, limitCount);
+}
+
+/** Secure play-count increment — skips author self-plays. */
+export async function incrementLevelPlayCount(levelId: string, user: User): Promise<void> {
+  const fn = httpsCallable<
+    { levelId: string; username: string; password: string },
+    { success: boolean }
+  >(functions, 'incrementLevelPlayCountSecure');
+  await fn({ levelId, ...levelAuth(user) });
 }
 
 // ============================================

@@ -24,10 +24,11 @@ service cloud.firestore {
       allow write: if false;
     }
     
-    // User-created levels (MIE-19) — logged-in clients read/write (custom auth model)
+    // User-created levels — public reads only; writes via Cloud Functions (MIE-19).
     match /levels/{levelId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if resource.data.visibility == 'public'
+        && (resource.data.archived == false || !('archived' in resource.data));
+      allow write: if false;
     }
     
     match /users/{username} {

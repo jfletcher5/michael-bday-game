@@ -275,6 +275,7 @@ export interface Platform {
   width: number;        // Platform width
   height: number;       // Platform height (typically constant)
   isFinish?: boolean;   // Whether this is a finish platform
+  rotation?: number;    // Degrees — used in custom level mode (MIE-19)
 }
 
 /**
@@ -333,6 +334,7 @@ export interface LevelDocument {
   description: string;
   authorUsername: string;
   visibility: 'public' | 'private';
+  archived?: boolean;
   createdAtMs: number;
   updatedAtMs: number;
   playCount: number;

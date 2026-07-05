@@ -392,6 +392,256 @@ export const renameUser = functions.https.onCall(async (data) => {
 });
 
 // ============================================
+// LEVEL STUDIO (MIE-19) — secure level CRUD
+// ============================================
+
+const LEVELS_COLLECTION = 'levels';
+const LEVEL_WORLD_W = 900;
+const LEVEL_WORLD_H = 520;
+const MAX_LEVEL_PLATFORMS = 100;
+const MAX_LEVEL_BOMBS = 50;
+
+type LevelScrollDir = 'up' | 'down' | 'left' | 'right';
+
+async function verifyUserCredentials(username: string, password: string): Promise<string> {
+  const docId = await resolveUserDocId(String(username));
+  if (!docId) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  const snap = await db.collection(USERS_COLLECTION).doc(docId).get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  const data = snap.data() as Record<string, unknown>;
+  if (data.password !== password) {
+    throw new functions.https.HttpsError('permission-denied', 'Incorrect password');
+  }
+  return docId;
+}
+
+function sanitizeLevelPayload(raw: Record<string, unknown>, authorUsername: string, existing?: Record<string, unknown>) {
+  const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) : 'Untitled Level';
+  const description = typeof raw.description === 'string' ? raw.description.trim().slice(0, 200) : '';
+  const visibility = raw.visibility === 'public' ? 'public' : 'private';
+  const screenScroll = (['up', 'down', 'left', 'right'] as LevelScrollDir[]).includes(raw.screenScroll as LevelScrollDir)
+    ? (raw.screenScroll as LevelScrollDir)
+    : 'down';
+  const skyColor = typeof raw.skyColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.skyColor)
+    ? raw.skyColor
+    : '#1a1a2e';
+
+  let ballSpawner: { x: number; y: number } | null = null;
+  if (raw.ballSpawner && typeof raw.ballSpawner === 'object') {
+    const s = raw.ballSpawner as { x?: unknown; y?: unknown };
+    if (typeof s.x === 'number' && typeof s.y === 'number') {
+      ballSpawner = {
+        x: Math.max(0, Math.min(LEVEL_WORLD_W, s.x)),
+        y: Math.max(0, Math.min(LEVEL_WORLD_H, s.y)),
+      };
+    }
+  }
+
+  const platforms = Array.isArray(raw.platforms)
+    ? raw.platforms.slice(0, MAX_LEVEL_PLATFORMS).map((p, idx) => {
+        const row = p as Record<string, unknown>;
+        return {
+          id: typeof row.id === 'string' ? row.id.slice(0, 64) : `platform-${idx}`,
+          x: typeof row.x === 'number' ? row.x : 0,
+          y: typeof row.y === 'number' ? row.y : 0,
+          width: typeof row.width === 'number' ? Math.max(20, Math.min(400, row.width)) : 120,
+          height: typeof row.height === 'number' ? Math.max(8, Math.min(80, row.height)) : 16,
+          rotation: typeof row.rotation === 'number' ? row.rotation : 0,
+          scale: typeof row.scale === 'number' ? Math.max(0.5, Math.min(3, row.scale)) : 1,
+          isFinish: row.isFinish === true,
+        };
+      })
+    : [];
+
+  const bombs = Array.isArray(raw.bombs)
+    ? raw.bombs.slice(0, MAX_LEVEL_BOMBS).map((b, idx) => {
+        const row = b as Record<string, unknown>;
+        return {
+          id: typeof row.id === 'string' ? row.id.slice(0, 64) : `bomb-${idx}`,
+          x: typeof row.x === 'number' ? row.x : 0,
+          y: typeof row.y === 'number' ? row.y : 0,
+          rotation: typeof row.rotation === 'number' ? row.rotation : 0,
+          scale: typeof row.scale === 'number' ? Math.max(0.5, Math.min(3, row.scale)) : 1,
+        };
+      })
+    : [];
+
+  if (visibility === 'public') {
+    if (!ballSpawner) {
+      throw new functions.https.HttpsError('failed-precondition', 'Public levels require a Ball Spawner.');
+    }
+    if (platforms.length < 1) {
+      throw new functions.https.HttpsError('failed-precondition', 'Public levels require at least one platform.');
+    }
+    if (!platforms.some((p) => p.isFinish)) {
+      throw new functions.https.HttpsError('failed-precondition', 'Public levels require a finish platform.');
+    }
+  }
+
+  const now = Date.now();
+  return {
+    name,
+    description,
+    authorUsername,
+    visibility,
+    archived: false,
+    createdAtMs: typeof existing?.createdAtMs === 'number' ? existing.createdAtMs : now,
+    updatedAtMs: now,
+    playCount: typeof existing?.playCount === 'number' ? existing.playCount : 0,
+    screenScroll,
+    skyColor,
+    ballSpawner,
+    platforms,
+    bombs,
+  };
+}
+
+/** Create a blank level owned by the authenticated author. */
+export const createLevel = functions.https.onCall(async (data) => {
+  const { username, password } = data ?? {};
+  if (!username || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username or password');
+  }
+  const authorUsername = await verifyUserCredentials(username, password);
+  const now = Date.now();
+  const ref = db.collection(LEVELS_COLLECTION).doc();
+  const level = {
+    name: 'Untitled Level',
+    description: '',
+    authorUsername,
+    visibility: 'private',
+    archived: false,
+    createdAtMs: now,
+    updatedAtMs: now,
+    playCount: 0,
+    screenScroll: 'down',
+    skyColor: '#1a1a2e',
+    ballSpawner: { x: 200, y: 400 },
+    platforms: [],
+    bombs: [],
+  };
+  await ref.set(level);
+  return { id: ref.id, ...level };
+});
+
+/** Update an existing level — author-only. */
+export const updateLevel = functions.https.onCall(async (data) => {
+  const { username, password, levelId, level } = data ?? {};
+  if (!username || !password || !levelId || !level) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username, password, levelId, or level');
+  }
+  const authorUsername = await verifyUserCredentials(username, password);
+  const ref = db.collection(LEVELS_COLLECTION).doc(String(levelId));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Level not found');
+  }
+  const existing = snap.data() as Record<string, unknown>;
+  if (existing.authorUsername !== authorUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Only the author can edit this level');
+  }
+  if (existing.archived === true) {
+    throw new functions.https.HttpsError('failed-precondition', 'Archived levels cannot be edited');
+  }
+  const sanitized = sanitizeLevelPayload(level as Record<string, unknown>, authorUsername, existing);
+  await ref.set(sanitized);
+  return { id: ref.id, ...sanitized };
+});
+
+/** Archive (soft-delete) a level — author-only. */
+export const archiveLevel = functions.https.onCall(async (data) => {
+  const { username, password, levelId } = data ?? {};
+  if (!username || !password || !levelId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username, password, or levelId');
+  }
+  const authorUsername = await verifyUserCredentials(username, password);
+  const ref = db.collection(LEVELS_COLLECTION).doc(String(levelId));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Level not found');
+  }
+  const existing = snap.data() as Record<string, unknown>;
+  if (existing.authorUsername !== authorUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Only the author can archive this level');
+  }
+  await ref.update({ archived: true, updatedAtMs: Date.now() });
+  return { success: true };
+});
+
+/** List author's non-archived levels including private drafts. */
+export const getMyLevelsSecure = functions.https.onCall(async (data) => {
+  const { username, password } = data ?? {};
+  if (!username || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username or password');
+  }
+  const authorUsername = await verifyUserCredentials(username, password);
+  const snap = await db.collection(LEVELS_COLLECTION)
+    .where('authorUsername', '==', authorUsername)
+    .orderBy('updatedAtMs', 'desc')
+    .limit(50)
+    .get();
+  return snap.docs
+    .filter((d) => (d.data() as Record<string, unknown>).archived !== true)
+    .map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+});
+
+/** Load a level for play — public to anyone; private only for author. */
+export const getLevelForPlay = functions.https.onCall(async (data) => {
+  const { levelId, username, password } = data ?? {};
+  if (!levelId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing levelId');
+  }
+  const ref = db.collection(LEVELS_COLLECTION).doc(String(levelId));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Level not found');
+  }
+  const level = snap.data() as Record<string, unknown>;
+  if (level.archived === true) {
+    throw new functions.https.HttpsError('not-found', 'Level not found');
+  }
+  if (level.visibility === 'private') {
+    if (!username || !password) {
+      throw new functions.https.HttpsError('permission-denied', 'Private level — author login required');
+    }
+    const authorUsername = await verifyUserCredentials(username, password);
+    if (level.authorUsername !== authorUsername) {
+      throw new functions.https.HttpsError('permission-denied', 'Private level');
+    }
+  }
+  return { id: snap.id, ...level };
+});
+
+/** Increment play count for public levels — skips author self-plays. */
+export const incrementLevelPlayCountSecure = functions.https.onCall(async (data) => {
+  const { levelId, username, password } = data ?? {};
+  if (!levelId || !username || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing levelId, username, or password');
+  }
+  const playerUsername = await verifyUserCredentials(username, password);
+  const ref = db.collection(LEVELS_COLLECTION).doc(String(levelId));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Level not found');
+  }
+  const level = snap.data() as Record<string, unknown>;
+  if (level.archived === true || level.visibility !== 'public') {
+    return { success: false };
+  }
+  if (level.authorUsername === playerUsername) {
+    return { success: false, skipped: true };
+  }
+  await ref.update({
+    playCount: admin.firestore.FieldValue.increment(1),
+  });
+  return { success: true };
+});
+
+// ============================================
 // CLOUD FUNCTION: cleanupExpiredSessions (scheduled)
 // ============================================
 /**
