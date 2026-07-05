@@ -7,7 +7,7 @@ import type Matter from 'matter-js';
  */
 export interface Score {
   avatarId: number;      // Selected avatar (1-9)
-  initials: string;      // 3-letter initials (e.g., "ABC")
+  initials: string;      // Player display name on the leaderboard row
   distance: number;      // Best distance survived (primary ranking)
   date: string;          // ISO date string when best score was achieved
   isVip?: boolean;       // Snapshot at submit time — VIP gamepass styling on leaderboard
@@ -34,7 +34,14 @@ export interface PlayerSettings {
  * User account stored in Firestore
  */
 export interface User {
-  username: string;      // 3-letter initials (unique identifier)
+  username: string;      // Firestore doc id / login name (MIE-23 display name)
+  displayName?: string;  // Shown in UI; mirrors username after MIE-23
+  usernameLower?: string; // Case-insensitive lookup key
+  lastRenameAtMs?: number; // Unix ms — Settings rename cooldown anchor
+  legacyRenameUsed?: boolean; // True after a legacy 3-letter account picks a new name
+  isLegacyInitials?: boolean; // True for pre-MIE-23 three-letter accounts
+  lastSeenAtMs?: number; // Online presence heartbeat (MIE-20)
+  unreadChats?: Record<string, number>; // friendUsername -> unread count (MIE-20)
   password: string;      // User's password
   totalMeters: number;   // Cumulative distance traveled across all games
   totalCoins: number;    // Cumulative coins collected
@@ -205,8 +212,16 @@ export interface BallType {
  * Login credentials for authentication
  */
 export interface LoginCredentials {
-  username: string;      // 3-letter initials
+  username: string;      // Display name (login id)
   password: string;      // User's password
+}
+
+/** Result from renameUser Cloud Function (MIE-23). */
+export interface RenameUserResult {
+  success: boolean;
+  username: string;
+  displayName: string;
+  message?: string;
 }
 
 /**
@@ -285,14 +300,99 @@ export interface BreakableWall {
   maxHits: number;      // Maximum hits before breaking (3)
 }
 
+/** Screen auto-scroll direction during level play (MIE-19). */
+export type LevelScrollDirection = 'up' | 'down' | 'left' | 'right';
+
+/** Placed platform in a user-created level (MIE-19). */
+export interface LevelPlatformObject {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  scale: number;
+  isFinish?: boolean;
+}
+
+/** Placed bomb in a user-created level (MIE-19). */
+export interface LevelBombObject {
+  id: string;
+  x: number;
+  y: number;
+  rotation?: number;
+  scale?: number;
+}
+
 /**
- * Custom level interface
+ * Firestore levels/{levelId} document (MIE-19).
  */
+export interface LevelDocument {
+  id: string;
+  name: string;
+  description: string;
+  authorUsername: string;
+  visibility: 'public' | 'private';
+  createdAtMs: number;
+  updatedAtMs: number;
+  playCount: number;
+  screenScroll: LevelScrollDirection;
+  skyColor: string;
+  ballSpawner: { x: number; y: number } | null;
+  platforms: LevelPlatformObject[];
+  bombs: LevelBombObject[];
+}
+
+/** @deprecated Use LevelDocument — kept for GameCanvas platform prop compatibility. */
 export interface Level {
-  id: string;           // Unique identifier
-  name: string;         // Level name
-  platforms: Platform[]; // Array of platforms in the level
-  createdDate: string;  // ISO date string
+  id: string;
+  name: string;
+  platforms: Platform[];
+  createdDate: string;
+}
+
+// --- Social / friends (MIE-20) ---
+
+export interface FriendRequest {
+  id: string;
+  fromUsername: string;
+  toUsername: string;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAtMs: number;
+}
+
+export interface Friendship {
+  id: string;
+  usernames: [string, string];
+  createdAtMs: number;
+  blockedBy?: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  fromUsername: string;
+  text: string;
+  createdAtMs: number;
+}
+
+export type RaceChallengeStatus =
+  | 'pending'
+  | 'accepted'
+  | 'declined'
+  | 'waiting_ready'
+  | 'in_progress'
+  | 'finished';
+
+export interface RaceChallenge {
+  id: string;
+  challenger: string;
+  opponent: string;
+  targetMeters: number;
+  status: RaceChallengeStatus;
+  ready: Record<string, boolean>;
+  liveProgress?: Record<string, number>;
+  winner?: string | null;
+  createdAtMs: number;
 }
 
 /**

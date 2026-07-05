@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { User } from '../lib/types';
 import { logout } from '../lib/auth';
+import { getDisplayName } from '../lib/firestore';
 import { formatPrice } from '../lib/ballTypes';
 import { getCurrentSeasonId, getCurrentSeasonConfig } from '../lib/seasons';
 import { getProPassConfig, isProPassActive, isProPassStarted } from '../lib/proPass';
@@ -13,6 +14,8 @@ interface TopNavProps {
   showShopButton?: boolean;
   showSeasonButton?: boolean;
   showSettingsButton?: boolean;
+  showFriendsButton?: boolean;
+  showLevelsButton?: boolean;
   transparent?: boolean;
 }
 
@@ -22,6 +25,8 @@ export default function TopNav({
   showShopButton = true,
   showSeasonButton = true,
   showSettingsButton = true,
+  showFriendsButton = true,
+  showLevelsButton = true,
   transparent = false,
 }: TopNavProps) {
   const router = useRouter();
@@ -36,6 +41,8 @@ export default function TopNav({
   const handleAvatars = () => router.push('/avatars');
   const handleSeason = () => router.push(`/season/${getCurrentSeasonId()}`);
   const handleSettings = () => router.push('/settings');
+  const handleFriends = () => router.push('/friends');
+  const handleLevels = () => router.push('/levels');
   const handleAdmin = () => router.push('/admin');
   const handleProPass = () => router.push('/pro-pass');
   const seasonConfig = getCurrentSeasonConfig();
@@ -97,6 +104,18 @@ export default function TopNav({
               <span className="hidden sm:inline text-sm">Settings</span>
             </button>
           )}
+          {showFriendsButton && user && (
+            <button onClick={handleFriends} className={navButtonClass}>
+              <span className="text-lg">👥</span>
+              <span className="hidden sm:inline text-sm">Friends</span>
+            </button>
+          )}
+          {showLevelsButton && user && (
+            <button onClick={handleLevels} className={navButtonClass}>
+              <span className="text-lg">🗺️</span>
+              <span className="hidden sm:inline text-sm">Levels</span>
+            </button>
+          )}
           {/* Non-admins: Pro Pass sits right after Settings */}
           {showProPassButton && !user.isAdmin && (
             <button
@@ -152,7 +171,7 @@ export default function TopNav({
 
               {/* Username & Logout */}
               <div className={`${surfaceClass} ${textClass} min-h-[44px] py-2 px-3 sm:px-4 rounded-full flex items-center gap-2`}>
-                <span className="font-bold text-xs sm:text-sm">{user.username}</span>
+                <span className="font-bold text-xs sm:text-sm">{user ? getDisplayName(user) : ''}</span>
                 <button
                   onClick={handleLogout}
                   className={`${transparent ? 'text-red-300 hover:text-red-200' : 'text-red-500 hover:text-red-600'} font-medium text-xs sm:text-sm transition-colors min-h-[44px] flex items-center`}

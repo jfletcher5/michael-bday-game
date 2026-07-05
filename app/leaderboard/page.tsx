@@ -118,7 +118,7 @@ export default function Leaderboard() {
                 <tbody>
                   {scores.map((score, index) => {
                     const rank = index + 1;
-                    const isVip = score.isVip === true || vipSet.has(score.initials.toUpperCase());
+                    const isVip = score.isVip === true || vipSet.has(score.initials.toLowerCase());
                     return (
                       <tr
                         key={score.initials}
@@ -149,7 +149,7 @@ export default function Leaderboard() {
                                 VIP
                               </span>
                             )}
-                            {verifiedSet.has(score.initials.toUpperCase()) && (
+                            {verifiedSet.has(score.initials.toLowerCase()) && (
                               <VerifiedBadge size={18} />
                             )}
                           </div>

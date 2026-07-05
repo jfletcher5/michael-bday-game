@@ -25,9 +25,15 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings, PendingGift, GiftTransaction } from './types';
+import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings, PendingGift, GiftTransaction, RenameUserResult, LevelDocument, FriendRequest, Friendship, ChatMessage, RaceChallenge } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
+import {
+  formatDisplayName,
+  usernameLowerKey,
+  validateDisplayName,
+  isLegacyInitialsUsername,
+} from './displayName';
 import {
   getProPassConfig,
   isProPassActive,
@@ -276,6 +282,66 @@ export async function getTotalScoreCount(): Promise<number> {
 
 // Collection name for users
 const USERS_COLLECTION = 'users';
+const LEVELS_COLLECTION = 'levels';
+const FRIEND_REQUESTS_COLLECTION = 'friendRequests';
+const FRIENDSHIPS_COLLECTION = 'friendships';
+const RACE_CHALLENGES_COLLECTION = 'raceChallenges';
+
+/** Canonical Firestore ref — username is the doc id (mixed case after MIE-23). */
+function userRef(username: string) {
+  return doc(db, USERS_COLLECTION, username);
+}
+
+/** Shown name in UI; falls back to username for legacy rows. */
+export function getDisplayName(user: User): string {
+  return user.displayName ?? user.username;
+}
+
+/** Resolve login input to the stored users/{docId}. */
+export async function resolveUserDocId(input: string): Promise<string | null> {
+  const formatted = formatDisplayName(input);
+  if (!formatted) return null;
+
+  const direct = await getDoc(userRef(formatted));
+  if (direct.exists()) return formatted;
+
+  const compact = formatted.replace(/\s/g, '');
+  if (/^[A-Za-z]{3}$/.test(compact)) {
+    const legacyId = compact.toUpperCase();
+    const legacyDoc = await getDoc(userRef(legacyId));
+    if (legacyDoc.exists()) return legacyId;
+  }
+
+  const lower = usernameLowerKey(formatted);
+  const q = query(collection(db, USERS_COLLECTION), where('usernameLower', '==', lower), limit(1));
+  const snap = await getDocs(q);
+  if (!snap.empty) return snap.docs[0].id;
+  return null;
+}
+
+async function isUsernameLowerTaken(lower: string, exceptDocId?: string): Promise<boolean> {
+  const q = query(collection(db, USERS_COLLECTION), where('usernameLower', '==', lower), limit(1));
+  const snap = await getDocs(q);
+  if (snap.empty) return false;
+  if (exceptDocId && snap.docs[0].id === exceptDocId) return false;
+  return true;
+}
+
+/** Prefix search on usernameLower for friends / gifting (MIE-20). */
+export async function searchPlayersByPrefix(term: string, max = 20): Promise<User[]> {
+  const trimmed = formatDisplayName(term).toLowerCase();
+  if (trimmed.length < 1) return [];
+
+  const end = trimmed.slice(0, -1) + String.fromCharCode(trimmed.charCodeAt(trimmed.length - 1) + 1);
+  const q = query(
+    collection(db, USERS_COLLECTION),
+    where('usernameLower', '>=', trimmed),
+    where('usernameLower', '<', end),
+    limit(max),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => normalizeUserAvatarFields(d.data() as User));
+}
 
 // Collection name for season pass reward definitions
 const SEASON_CONFIGS_COLLECTION = 'seasonConfigs';
@@ -283,33 +349,38 @@ const PRO_PASS_CONFIGS_COLLECTION = 'proPassConfigs';
 const AVATAR_ITEMS_COLLECTION = 'avatarItems';
 
 /**
- * Create a new user account
- * @param credentials - Username (3 letters) and password
- * @param avatarId - Selected avatar ID
- * @returns Promise that resolves to the new User object
- * @throws Error if username already exists
+ * Create a new user account with a custom display name (MIE-23).
  */
 export async function createUser(
   credentials: LoginCredentials,
   avatarId: number
 ): Promise<User> {
   try {
-    const username = credentials.username.toUpperCase();
-    
-    // Check if user already exists
-    const userDoc = await getDoc(doc(db, USERS_COLLECTION, username));
-    if (userDoc.exists()) {
-      throw new Error('Username already exists');
+    const validation = validateDisplayName(credentials.username);
+    if (!validation.ok) {
+      throw new Error(validation.error);
     }
-    
-    // Create new user with default values
+    const username = validation.formatted;
+    const lower = usernameLowerKey(username);
+
+    if (await isUsernameLowerTaken(lower)) {
+      throw new Error('Name already taken');
+    }
+
+    const existing = await getDoc(userRef(username));
+    if (existing.exists()) {
+      throw new Error('Name already taken');
+    }
+
     const newUser: User = {
       username,
+      displayName: username,
+      usernameLower: lower,
       password: credentials.password,
       totalMeters: 0,
       totalCoins: 0,
       totalGems: 0,
-      ownedBalls: ['default'], // Start with default ball owned
+      ownedBalls: ['default'],
       selectedBall: 'default',
       avatarId,
       createdAt: new Date().toISOString(),
@@ -318,10 +389,8 @@ export async function createUser(
       ownedAvatarItems: [...STARTER_OWNED_ITEM_IDS],
       equippedAvatar: createStarterEquippedAvatar(),
     };
-    
-    // Save to Firestore using username as document ID
-    await setDoc(doc(db, USERS_COLLECTION, username), newUser);
-    
+
+    await setDoc(userRef(username), newUser);
     console.log('User created successfully:', username);
     return newUser;
   } catch (error) {
@@ -331,30 +400,40 @@ export async function createUser(
 }
 
 /**
- * Login user with username and password
- * @param credentials - Username and password
- * @returns Promise that resolves to User object if credentials match
- * @throws Error if user not found or password incorrect
+ * Login with display name + password (case-insensitive name lookup).
  */
 export async function loginUser(credentials: LoginCredentials): Promise<User> {
   try {
-    const username = credentials.username.toUpperCase();
-    
-    // Get user document
-    const userDoc = await getDoc(doc(db, USERS_COLLECTION, username));
-    
+    const docId = await resolveUserDocId(credentials.username);
+    if (!docId) {
+      throw new Error('User not found');
+    }
+
+    const userDoc = await getDoc(userRef(docId));
     if (!userDoc.exists()) {
       throw new Error('User not found');
     }
-    
-    const userData = userDoc.data() as User;
-    
-    // Check password
+
+    let userData = userDoc.data() as User;
+
     if (userData.password !== credentials.password) {
       throw new Error('Incorrect password');
     }
-    
-    console.log('User logged in:', username);
+
+    // Backfill MIE-23 fields for legacy rows on login.
+    const patches: Partial<User> = {};
+    if (!userData.displayName) patches.displayName = userData.username;
+    if (!userData.usernameLower) patches.usernameLower = usernameLowerKey(userData.username);
+    if (isLegacyInitialsUsername(userData.username) && userData.isLegacyInitials === undefined) {
+      patches.isLegacyInitials = true;
+      if (userData.legacyRenameUsed === undefined) patches.legacyRenameUsed = false;
+    }
+    if (Object.keys(patches).length > 0) {
+      await updateDoc(userRef(docId), patches);
+      userData = { ...userData, ...patches };
+    }
+
+    console.log('User logged in:', docId);
     return normalizeUserAvatarFields(userData);
   } catch (error) {
     console.error('Error logging in:', error);
@@ -362,12 +441,26 @@ export async function loginUser(credentials: LoginCredentials): Promise<User> {
   }
 }
 
+/** Secure rename via Cloud Function — migrates user + leaderboard docs (MIE-23). */
+export async function renameUserViaFunction(
+  oldUsername: string,
+  password: string,
+  newName: string,
+): Promise<RenameUserResult> {
+  const renameFn = httpsCallable<
+    { oldUsername: string; password: string; newName: string },
+    RenameUserResult
+  >(functions, 'renameUser');
+  const result = await renameFn({ oldUsername, password, newName });
+  return result.data;
+}
+
 /**
  * Persist a user's selected avatar.
  * Updates both Firestore and the returned User snapshot.
  */
 export async function updateUserAvatar(username: string, avatarId: number): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -385,7 +478,7 @@ export async function updateUserPlayerSettings(
   username: string,
   settings: PlayerSettings
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -404,7 +497,7 @@ export async function getVerifiedUsernames(): Promise<Set<string>> {
     const q = query(collection(db, USERS_COLLECTION), where('verified', '==', true));
     const snap = await getDocs(q);
     const result = new Set<string>();
-    snap.docs.forEach((d) => result.add(d.id.toUpperCase()));
+    snap.docs.forEach((d) => result.add(d.id.toLowerCase()));
     return result;
   } catch (error) {
     console.error('Error fetching verified usernames:', error);
@@ -419,7 +512,7 @@ export async function getVerifiedUsernames(): Promise<Set<string>> {
  */
 export async function getUserData(username: string): Promise<User | null> {
   try {
-    const userDoc = await getDoc(doc(db, USERS_COLLECTION, username.toUpperCase()));
+    const userDoc = await getDoc(doc(db, USERS_COLLECTION, username));
     
     if (!userDoc.exists()) {
       return null;
@@ -447,7 +540,7 @@ export async function updateUserStats(
   gemsEarned: number = 0
 ): Promise<User | null> {
   try {
-    const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+    const userRef = doc(db, USERS_COLLECTION, username);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
@@ -553,7 +646,7 @@ export interface AuroraShardAwardResult {
  * A transaction prevents duplicate async awards from pushing progress over 12.
  */
 export async function awardAuroraShard(username: string): Promise<AuroraShardAwardResult> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
 
   return runTransaction(db, async (transaction) => {
     const userDoc = await transaction.get(userRef);
@@ -619,7 +712,7 @@ export async function purchaseBall(
   price: number
 ): Promise<User> {
   try {
-    const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+    const userRef = doc(db, USERS_COLLECTION, username);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
@@ -687,7 +780,7 @@ export async function purchaseBallWithGems(
     throw new Error('This ball cannot be purchased with gems');
   }
 
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
 
   return runTransaction(db, async (transaction) => {
     const userDoc = await transaction.get(userRef);
@@ -718,7 +811,7 @@ export async function purchaseBallWithGems(
  */
 export async function purchaseGamepass(username: string, passId: GamepassId): Promise<User> {
   const pass = getGamepassById(passId);
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
 
   return runTransaction(db, async (transaction) => {
     const userDoc = await transaction.get(userRef);
@@ -769,7 +862,7 @@ export async function getVipUsernames(): Promise<Set<string>> {
     const q = query(collection(db, USERS_COLLECTION), where('gamepasses.vip', '==', true));
     const snap = await getDocs(q);
     const result = new Set<string>();
-    snap.docs.forEach((d) => result.add(d.id.toUpperCase()));
+    snap.docs.forEach((d) => result.add(d.id.toLowerCase()));
     return result;
   } catch (error) {
     console.error('Error fetching VIP usernames:', error);
@@ -789,7 +882,7 @@ export async function selectBall(
   ballId: string
 ): Promise<User> {
   try {
-    const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+    const userRef = doc(db, USERS_COLLECTION, username);
     const userDoc = await getDoc(userRef);
     
     if (!userDoc.exists()) {
@@ -870,7 +963,7 @@ export async function claimSeasonReward(
   track: 'free' | 'premium',
   levelIndex: number
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -938,7 +1031,7 @@ export async function purchaseSeasonPremium(
   seasonId: string,
   cost: number
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1026,7 +1119,7 @@ export async function claimProPassReward(
   track: 'free' | 'premium',
   levelIndex: number
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1086,7 +1179,7 @@ export async function purchaseProPassPremium(
   passId: string,
   cost: number
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1138,7 +1231,7 @@ export async function purchaseProPassPremium(
  * Use one extra ball (for revival). Decrements the count.
  */
 export async function useExtraBall(username: string): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1262,7 +1355,7 @@ export function subscribeToActiveMessages(
  * Mark a message as seen for a user — appends id to seenMessageIds.
  */
 export async function markMessageSeen(username: string, messageId: string): Promise<void> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   await updateDoc(userRef, { seenMessageIds: arrayUnion(messageId) });
 }
 
@@ -1375,7 +1468,7 @@ export function subscribeToActivePoll(
  * Has the given user already voted in the given poll?
  */
 export async function hasUserAnsweredPoll(pollId: string, username: string): Promise<boolean> {
-  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username);
   const snap = await getDoc(ref);
   return snap.exists();
 }
@@ -1384,7 +1477,7 @@ export async function hasUserAnsweredPoll(pollId: string, username: string): Pro
  * Return the option index this user voted for, or null if they haven't voted.
  */
 export async function getUserPollAnswer(pollId: string, username: string): Promise<number | null> {
-  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const ref = doc(db, POLLS_COLLECTION, pollId, 'answers', username);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
   const data = snap.data() as { optionIndex?: number };
@@ -1400,7 +1493,7 @@ export async function submitPollAnswer(
   username: string,
   optionIndex: number,
 ): Promise<void> {
-  const answerRef = doc(db, POLLS_COLLECTION, pollId, 'answers', username.toUpperCase());
+  const answerRef = doc(db, POLLS_COLLECTION, pollId, 'answers', username);
   const existing = await getDoc(answerRef);
   if (existing.exists()) throw new Error('Already answered');
 
@@ -1426,7 +1519,7 @@ export async function closePoll(pollId: string): Promise<void> {
 
 /** Persist starter avatar fields for legacy users missing them (MIE-16). */
 export async function ensureUserAvatarMigration(username: string): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1512,7 +1605,7 @@ export async function purchaseAvatarItem(
   username: string,
   item: AvatarItem
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const itemRef = doc(db, AVATAR_ITEMS_COLLECTION, item.id);
 
   return runTransaction(db, async (transaction) => {
@@ -1563,7 +1656,7 @@ export async function equipAvatarItem(
   itemId: string,
   partType: AvatarPartType
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1584,7 +1677,7 @@ export async function unequipAvatarSlot(
   username: string,
   partType: AvatarPartType
 ): Promise<User> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  const userRef = doc(db, USERS_COLLECTION, username);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) throw new Error('User not found');
 
@@ -1755,5 +1848,319 @@ export async function giftShopItem(
   });
 
   return { gifter: gifterUser, recipientUsername: recipientKey };
+}
+
+// ============================================
+// LEVEL STUDIO (MIE-19)
+// ============================================
+
+function emptyLevelDraft(authorUsername: string): Omit<LevelDocument, 'id'> {
+  const now = Date.now();
+  return {
+    name: 'Untitled Level',
+    description: '',
+    authorUsername,
+    visibility: 'private',
+    createdAtMs: now,
+    updatedAtMs: now,
+    playCount: 0,
+    screenScroll: 'down',
+    skyColor: '#1a1a2e',
+    ballSpawner: { x: 200, y: 400 },
+    platforms: [],
+    bombs: [],
+  };
+}
+
+export async function createLevelDocument(authorUsername: string): Promise<LevelDocument> {
+  const ref = doc(collection(db, LEVELS_COLLECTION));
+  const level: LevelDocument = { id: ref.id, ...emptyLevelDraft(authorUsername) };
+  await setDoc(ref, level);
+  return level;
+}
+
+export async function updateLevelDocument(level: LevelDocument): Promise<void> {
+  await setDoc(doc(db, LEVELS_COLLECTION, level.id), {
+    ...level,
+    updatedAtMs: Date.now(),
+  });
+}
+
+export async function getLevelDocument(levelId: string): Promise<LevelDocument | null> {
+  const snap = await getDoc(doc(db, LEVELS_COLLECTION, levelId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as Omit<LevelDocument, 'id'>) };
+}
+
+export async function getMyLevels(authorUsername: string): Promise<LevelDocument[]> {
+  const q = query(
+    collection(db, LEVELS_COLLECTION),
+    where('authorUsername', '==', authorUsername),
+    orderBy('updatedAtMs', 'desc'),
+    limit(50),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LevelDocument, 'id'>) }));
+}
+
+export async function getPopularPublicLevels(limitCount = 5): Promise<LevelDocument[]> {
+  const q = query(
+    collection(db, LEVELS_COLLECTION),
+    where('visibility', '==', 'public'),
+    orderBy('playCount', 'desc'),
+    limit(limitCount),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<LevelDocument, 'id'>) }));
+}
+
+export async function incrementLevelPlayCount(levelId: string): Promise<void> {
+  await updateDoc(doc(db, LEVELS_COLLECTION, levelId), { playCount: increment(1) });
+}
+
+// ============================================
+// FRIENDS & SOCIAL (MIE-20)
+// ============================================
+
+/** Stable friendship doc id from two usernames. */
+export function friendshipPairId(a: string, b: string): string {
+  return [a, b].sort().join('__');
+}
+
+export function chatPairId(a: string, b: string): string {
+  return friendshipPairId(a, b);
+}
+
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
+export function isUserOnline(lastSeenAtMs?: number): boolean {
+  if (!lastSeenAtMs) return false;
+  return Date.now() - lastSeenAtMs < ONLINE_THRESHOLD_MS;
+}
+
+/** Heartbeat — call while app is open (MIE-20 presence). */
+export async function touchUserPresence(username: string): Promise<void> {
+  await updateDoc(userRef(username), { lastSeenAtMs: Date.now() });
+}
+
+export async function sendFriendRequest(fromUsername: string, toUsername: string): Promise<void> {
+  if (fromUsername === toUsername) throw new Error('Cannot friend yourself');
+
+  const pairId = friendshipPairId(fromUsername, toUsername);
+  const existingFriendship = await getDoc(doc(db, FRIENDSHIPS_COLLECTION, pairId));
+  if (existingFriendship.exists()) {
+    const data = existingFriendship.data() as Friendship;
+    if (data.blockedBy) throw new Error('Cannot send request');
+    throw new Error('Already friends');
+  }
+
+  const q = query(
+    collection(db, FRIEND_REQUESTS_COLLECTION),
+    where('fromUsername', '==', fromUsername),
+    where('toUsername', '==', toUsername),
+    where('status', '==', 'pending'),
+    limit(1),
+  );
+  const pending = await getDocs(q);
+  if (!pending.empty) throw new Error('Request already sent');
+
+  await addDoc(collection(db, FRIEND_REQUESTS_COLLECTION), {
+    fromUsername,
+    toUsername,
+    status: 'pending',
+    createdAtMs: Date.now(),
+  });
+}
+
+export async function getIncomingFriendRequests(toUsername: string): Promise<FriendRequest[]> {
+  const q = query(
+    collection(db, FRIEND_REQUESTS_COLLECTION),
+    where('toUsername', '==', toUsername),
+    where('status', '==', 'pending'),
+    orderBy('createdAtMs', 'desc'),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }));
+}
+
+export async function acceptFriendRequest(requestId: string): Promise<void> {
+  const reqRef = doc(db, FRIEND_REQUESTS_COLLECTION, requestId);
+  const reqDoc = await getDoc(reqRef);
+  if (!reqDoc.exists()) throw new Error('Request not found');
+  const req = reqDoc.data() as Omit<FriendRequest, 'id'>;
+  if (req.status !== 'pending') throw new Error('Request not pending');
+
+  const pairId = friendshipPairId(req.fromUsername, req.toUsername);
+  await runTransaction(db, async (tx) => {
+    tx.update(reqRef, { status: 'accepted' });
+    tx.set(doc(db, FRIENDSHIPS_COLLECTION, pairId), {
+      usernames: [req.fromUsername, req.toUsername].sort(),
+      createdAtMs: Date.now(),
+      blockedBy: null,
+    });
+  });
+}
+
+export async function declineFriendRequest(requestId: string): Promise<void> {
+  await updateDoc(doc(db, FRIEND_REQUESTS_COLLECTION, requestId), { status: 'declined' });
+}
+
+export async function getFriendsList(username: string): Promise<string[]> {
+  const q = query(collection(db, FRIENDSHIPS_COLLECTION), where('usernames', 'array-contains', username));
+  const snap = await getDocs(q);
+  const friends: string[] = [];
+  snap.docs.forEach((d) => {
+    const data = d.data() as Friendship;
+    if (data.blockedBy) return;
+    const other = data.usernames.find((u) => u !== username);
+    if (other) friends.push(other);
+  });
+  return friends.sort();
+}
+
+export async function unfriendUser(username: string, friendUsername: string): Promise<void> {
+  await deleteDoc(doc(db, FRIENDSHIPS_COLLECTION, friendshipPairId(username, friendUsername)));
+}
+
+export async function blockUser(username: string, targetUsername: string): Promise<void> {
+  const pairId = friendshipPairId(username, targetUsername);
+  const ref = doc(db, FRIENDSHIPS_COLLECTION, pairId);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    await updateDoc(ref, { blockedBy: username });
+  } else {
+    await setDoc(ref, {
+      usernames: [username, targetUsername].sort(),
+      createdAtMs: Date.now(),
+      blockedBy: username,
+    });
+  }
+}
+
+export async function sendChatMessage(
+  fromUsername: string,
+  toUsername: string,
+  text: string,
+): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  const pairId = chatPairId(fromUsername, toUsername);
+  await addDoc(collection(db, 'chats', pairId, 'messages'), {
+    fromUsername,
+    text: trimmed.slice(0, 500),
+    createdAtMs: Date.now(),
+  });
+
+  const recipientDoc = await getDoc(userRef(toUsername));
+  if (recipientDoc.exists()) {
+    const data = recipientDoc.data() as User;
+    const unread = { ...(data.unreadChats ?? {}) };
+    unread[fromUsername] = (unread[fromUsername] ?? 0) + 1;
+    await updateDoc(userRef(toUsername), { unreadChats: unread });
+  }
+}
+
+export function subscribeToChatMessages(
+  usernameA: string,
+  usernameB: string,
+  onMessages: (messages: ChatMessage[]) => void,
+): Unsubscribe {
+  const pairId = chatPairId(usernameA, usernameB);
+  const q = query(collection(db, 'chats', pairId, 'messages'), orderBy('createdAtMs', 'asc'), limit(200));
+  return onSnapshot(q, (snap) => {
+    onMessages(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ChatMessage, 'id'>) })));
+  });
+}
+
+export async function clearChatUnread(username: string, friendUsername: string): Promise<void> {
+  const userDoc = await getDoc(userRef(username));
+  if (!userDoc.exists()) return;
+  const data = userDoc.data() as User;
+  const unread = { ...(data.unreadChats ?? {}) };
+  delete unread[friendUsername];
+  await updateDoc(userRef(username), { unreadChats: unread });
+}
+
+export async function createRaceChallenge(
+  challenger: string,
+  opponent: string,
+  targetMeters: number,
+): Promise<RaceChallenge> {
+  const ref = doc(collection(db, RACE_CHALLENGES_COLLECTION));
+  const challenge: RaceChallenge = {
+    id: ref.id,
+    challenger,
+    opponent,
+    targetMeters,
+    status: 'pending',
+    ready: { [challenger]: false, [opponent]: false },
+    liveProgress: { [challenger]: 0, [opponent]: 0 },
+    winner: null,
+    createdAtMs: Date.now(),
+  };
+  await setDoc(ref, challenge);
+  return challenge;
+}
+
+export async function respondToRaceChallenge(challengeId: string, accept: boolean): Promise<void> {
+  await updateDoc(doc(db, RACE_CHALLENGES_COLLECTION, challengeId), {
+    status: accept ? 'waiting_ready' : 'declined',
+  });
+}
+
+export async function setRaceReady(challengeId: string, username: string, ready: boolean): Promise<void> {
+  const ref = doc(db, RACE_CHALLENGES_COLLECTION, challengeId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const race = snap.data() as RaceChallenge;
+  const nextReady = { ...(race.ready ?? {}), [username]: ready };
+  const updates: Record<string, unknown> = { ready: nextReady };
+  if (
+    race.status === 'waiting_ready' &&
+    nextReady[race.challenger] &&
+    nextReady[race.opponent]
+  ) {
+    updates.status = 'in_progress';
+  }
+  await updateDoc(ref, updates);
+}
+
+export function subscribeToRaceChallenge(
+  challengeId: string,
+  onChange: (race: RaceChallenge | null) => void,
+): Unsubscribe {
+  return onSnapshot(doc(db, RACE_CHALLENGES_COLLECTION, challengeId), (snap) => {
+    if (!snap.exists()) {
+      onChange(null);
+      return;
+    }
+    onChange({ id: snap.id, ...(snap.data() as Omit<RaceChallenge, 'id'>) });
+  });
+}
+
+export async function updateRaceProgress(
+  challengeId: string,
+  username: string,
+  meters: number,
+): Promise<void> {
+  const ref = doc(db, RACE_CHALLENGES_COLLECTION, challengeId);
+  await updateDoc(ref, { [`liveProgress.${username}`]: meters });
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const race = snap.data() as RaceChallenge;
+  if (race.status !== 'in_progress') return;
+  if (meters >= race.targetMeters) {
+    await updateDoc(ref, { status: 'finished', winner: username });
+  }
+}
+
+export async function forfeitRace(challengeId: string, username: string): Promise<void> {
+  const ref = doc(db, RACE_CHALLENGES_COLLECTION, challengeId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const race = snap.data() as RaceChallenge;
+  const winner = race.challenger === username ? race.opponent : race.challenger;
+  await updateDoc(ref, { status: 'finished', winner });
 }
 

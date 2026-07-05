@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
-import { BossHudState, GameState, Controls, PlayerIdentity, User } from '../lib/types';
-import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession, subscribeToAvatarItems } from '../lib/firestore';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { BossHudState, GameState, Controls, PlayerIdentity, User, Platform, Bomb } from '../lib/types';
+import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession, subscribeToAvatarItems, getLevelDocument, incrementLevelPlayCount, subscribeToRaceChallenge, updateRaceProgress } from '../lib/firestore';
+import { levelDocumentToPlatforms, levelDocumentToBombs, scrollDirectionMultiplier } from '../lib/levelUtils';
+import type { LevelDocument } from '../lib/types';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
 import { hasDoubleCash } from '../lib/gamepasses';
@@ -38,6 +40,9 @@ export default function GamePage() {
  */
 function Game() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const levelId = searchParams.get('levelId');
+  const raceId = searchParams.get('raceId');
   const { settings } = usePlayerSettings();
   
   // Game state
@@ -84,7 +89,11 @@ function Game() {
   // Game session for anti-cheat (from Cloud Function) - REQUIRED for score submission
   const gameSessionRef = useRef<GameSession | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [sessionLoading, setSessionLoading] = useState(true); // Track session initialization state
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  const [levelData, setLevelData] = useState<LevelDocument | null>(null);
+  const [raceOpponentMeters, setRaceOpponentMeters] = useState(0);
+  const isLevelRun = !!levelId;
 
   const syncCurrentUser = useCallback((updatedUser: User) => {
     currentUserRef.current = updatedUser;
@@ -197,6 +206,10 @@ function Game() {
   const handleDistanceUpdate = useCallback((newDistance: number) => {
     distanceRef.current = newDistance;
 
+    if (raceId && currentUserRef.current) {
+      updateRaceProgress(raceId, currentUserRef.current.username, newDistance).catch(() => {});
+    }
+
     // Coins: 20 per 50m (40 with 2x Cash gamepass)
     const coinPerMilestone = hasDoubleCash(currentUserRef.current) ? 40 : 20;
     const newCoinMilestone = Math.floor(newDistance / 50);
@@ -213,7 +226,7 @@ function Game() {
       gemsEarnedRef.current += gemMilestonesReached * 20;
       lastGemMilestoneRef.current = newGemMilestone;
     }
-  }, []);
+  }, [raceId]);
 
   const handleAuroraShardAward = useCallback(async () => {
     const user = currentUserRef.current;
@@ -223,6 +236,28 @@ function Game() {
     syncCurrentUser(result.user);
     return result;
   }, [syncCurrentUser]);
+
+  useEffect(() => {
+    if (!levelId) return;
+    getLevelDocument(levelId).then((lvl) => {
+      if (lvl) {
+        setLevelData(lvl);
+        if (currentUserRef.current && lvl.authorUsername !== currentUserRef.current.username) {
+          incrementLevelPlayCount(levelId).catch(() => {});
+        }
+      }
+    });
+  }, [levelId]);
+
+  useEffect(() => {
+    if (!raceId) return;
+    return subscribeToRaceChallenge(raceId, (race) => {
+      if (!race || !currentUserRef.current) return;
+      const me = currentUserRef.current.username;
+      const opp = race.challenger === me ? race.opponent : race.challenger;
+      setRaceOpponentMeters(race.liveProgress?.[opp] ?? 0);
+    });
+  }, [raceId]);
 
   // Handle game over — check for extra balls, then auto-save stats and score
   const handleGameOver = async () => {
@@ -246,6 +281,10 @@ function Game() {
 
   // Shared auto-save logic used by game over and decline-revive paths.
   const autoSaveRun = async () => {
+    if (isLevelRun) {
+      setScoreSaved(false);
+      return;
+    }
     const user = currentUserRef.current;
     const session = gameSessionRef.current;
     const identity = getIdentity();
@@ -407,6 +446,10 @@ function Game() {
   
   // Get the current ball type for rendering
   const ballType = getSelectedBallType();
+  const levelPlatforms: Platform[] = levelData ? levelDocumentToPlatforms(levelData) : EMPTY_CUSTOM_PLATFORMS;
+  const levelBombs: Bomb[] = levelData ? levelDocumentToBombs(levelData) : [];
+  const scrollMul = levelData ? scrollDirectionMultiplier(levelData.screenScroll) : { x: 0, y: 1 };
+  const levelScrollSign = scrollMul.y !== 0 ? scrollMul.y : 1;
 
   const equippedLayers = userSnapshot
     ? getEquippedAvatarItems(userSnapshot, avatarCatalog)
@@ -447,8 +490,12 @@ function Game() {
         onBossHudUpdate={setBossHud}
         isPlaying={gameState === 'playing' && !sessionLoading}
         reviveSignalRef={reviveSignalRef}
-        mode="infinite"
-        customPlatforms={EMPTY_CUSTOM_PLATFORMS}
+        mode={levelData ? 'level' : 'infinite'}
+        customPlatforms={levelData ? levelPlatforms : EMPTY_CUSTOM_PLATFORMS}
+        customBombs={levelBombs}
+        levelSkyColor={levelData?.skyColor}
+        levelScrollSign={levelScrollSign}
+        ballStartPosition={levelData?.ballSpawner ?? undefined}
         ballColor={ballType.color}
         ballStrokeColor={ballType.strokeColor}
         ballImageUrl={ballType.imageUrl}
@@ -458,6 +505,12 @@ function Game() {
         auroraBallUnlocked={auroraProgress.unlocked}
         onAuroraShardAward={handleAuroraShardAward}
       />
+
+      {raceId && (
+        <div className="absolute top-20 right-4 z-20 bg-black/70 text-white px-3 py-2 rounded-lg text-sm">
+          Opponent: {raceOpponentMeters}m
+        </div>
+      )}
 
       {/* Keyboard Controls Handler */}
       <ControlsComponent

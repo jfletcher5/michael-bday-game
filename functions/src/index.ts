@@ -23,6 +23,66 @@ const MAX_METERS_PER_SECOND = 30; // Maximum plausible score rate
 const MIN_GAME_DURATION_MS = 300; // Minimum game duration (0.3 seconds)
 const SESSION_EXPIRY_MS = 60 * 60 * 1000; // Sessions expire after 1 hour
 const SECRET_KEY = process.env.FUNCTIONS_SECRET_KEY || 'platform-drop-secret-key-2024';
+const DISPLAY_NAME_MAX_LENGTH = 10;
+const RENAME_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+
+const BLOCKED_NAME_SUBSTRINGS = [
+  'fuck', 'shit', 'bitch', 'asshole', 'damn', 'cunt', 'dick', 'pussy',
+  'nigger', 'nigga', 'faggot', 'retard', 'whore', 'slut',
+];
+
+function formatDisplayName(input: string): string {
+  return input.trim().replace(/\s+/g, ' ').slice(0, DISPLAY_NAME_MAX_LENGTH);
+}
+
+function usernameLowerKey(name: string): string {
+  return formatDisplayName(name).toLowerCase();
+}
+
+function isProfaneDisplayName(name: string): boolean {
+  const lower = name.toLowerCase().replace(/\s+/g, '');
+  return BLOCKED_NAME_SUBSTRINGS.some((word) => lower.includes(word));
+}
+
+function validateDisplayNameFormat(name: string): boolean {
+  const formatted = formatDisplayName(name);
+  if (formatted.length < 1 || formatted.length > DISPLAY_NAME_MAX_LENGTH) return false;
+  if (formatted.includes('/')) return false;
+  if (formatted === '.' || formatted === '..') return false;
+  return true;
+}
+
+function isLegacyInitialsUsername(username: string): boolean {
+  return /^[A-Z]{3}$/.test(username);
+}
+
+/** Accept display names (MIE-23) or legacy 3-letter ids for score submit. */
+function validatePlayerName(name: string): boolean {
+  if (isLegacyInitialsUsername(name)) return true;
+  if (!validateDisplayNameFormat(name)) return false;
+  if (isProfaneDisplayName(name)) return false;
+  return true;
+}
+
+async function resolveUserDocId(input: string): Promise<string | null> {
+  const formatted = formatDisplayName(input);
+  if (!formatted) return null;
+
+  const direct = await db.collection(USERS_COLLECTION).doc(formatted).get();
+  if (direct.exists) return formatted;
+
+  const compact = formatted.replace(/\s/g, '');
+  if (/^[A-Za-z]{3}$/.test(compact)) {
+    const legacyId = compact.toUpperCase();
+    const legacyDoc = await db.collection(USERS_COLLECTION).doc(legacyId).get();
+    if (legacyDoc.exists) return legacyId;
+  }
+
+  const lower = usernameLowerKey(formatted);
+  const snap = await db.collection(USERS_COLLECTION).where('usernameLower', '==', lower).limit(1).get();
+  if (!snap.empty) return snap.docs[0].id;
+  return null;
+}
 
 /**
  * Generate a secure token for session validation
@@ -38,13 +98,6 @@ function generateToken(sessionId: string, timestamp: number): string {
 function validateToken(sessionId: string, timestamp: number, token: string): boolean {
   const expectedToken = generateToken(sessionId, timestamp);
   return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expectedToken));
-}
-
-/**
- * Validate initials format (3 uppercase letters)
- */
-function validateInitials(initials: string): boolean {
-  return /^[A-Z]{3}$/.test(initials);
 }
 
 /**
@@ -131,8 +184,8 @@ export const submitScore = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Avatar ID must be between 1 and 9');
   }
   
-  if (!validateInitials(initials)) {
-    throw new functions.https.HttpsError('invalid-argument', 'Initials must be exactly 3 uppercase letters');
+  if (!validatePlayerName(String(initials))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid player name');
   }
   
   try {
@@ -185,22 +238,23 @@ export const submitScore = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'Score exceeds maximum possible for game duration');
     }
     
-    // All validations passed - snapshot VIP status for leaderboard styling
-    const initialsUpper = initials.toUpperCase();
+    // Resolve canonical user doc id for VIP + leaderboard row (MIE-23 / MIE-22).
+    const playerName = String(initials);
+    const userDocId = (await resolveUserDocId(playerName)) ?? playerName;
     const distanceInt = Math.floor(distance);
     let isVip = false;
     try {
-      const userDoc = await db.collection(USERS_COLLECTION).doc(initialsUpper).get();
+      const userDoc = await db.collection(USERS_COLLECTION).doc(userDocId).get();
       if (userDoc.exists) {
         const userData = userDoc.data();
         isVip = userData?.gamepasses?.vip === true;
       }
     } catch (vipLookupError) {
-      console.warn(`VIP lookup failed for ${initialsUpper}:`, vipLookupError);
+      console.warn(`VIP lookup failed for ${userDocId}:`, vipLookupError);
     }
 
-    // One doc per player (leaderboard/{USERNAME}) — only update on a new personal best
-    const leaderboardRef = db.collection(LEADERBOARD_COLLECTION).doc(initialsUpper);
+    // One doc per player (leaderboard/{USERNAME}) — only update on a new personal best (MIE-22).
+    const leaderboardRef = db.collection(LEADERBOARD_COLLECTION).doc(userDocId);
     const existingEntry = await leaderboardRef.get();
     const existingDistance = existingEntry.exists
       ? (existingEntry.data()?.distance as number | undefined) ?? 0
@@ -210,17 +264,17 @@ export const submitScore = functions.https.onCall(async (data, context) => {
     if (isNewPersonalBest) {
       await leaderboardRef.set({
         avatarId,
-        initials: initialsUpper,
+        initials: userDocId,
         distance: distanceInt,
         date: new Date().toISOString(),
         isVip,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         sessionId,
       });
-      console.log(`Leaderboard updated (new best): ${initialsUpper} - ${distanceInt}m`);
+      console.log(`Leaderboard updated (new best): ${userDocId} - ${distanceInt}m`);
     } else {
       console.log(
-        `Run recorded but not a personal best: ${initialsUpper} - ${distanceInt}m (best: ${existingDistance}m)`
+        `Run recorded but not a personal best: ${userDocId} - ${distanceInt}m (best: ${existingDistance}m)`
       );
     }
 
@@ -248,6 +302,93 @@ export const submitScore = functions.https.onCall(async (data, context) => {
     console.error('Error submitting score:', error);
     throw new functions.https.HttpsError('internal', 'Failed to submit score');
   }
+  });
+
+// ============================================
+// CLOUD FUNCTION: renameUser (MIE-23)
+// ============================================
+export const renameUser = functions.https.onCall(async (data) => {
+  const { oldUsername, password, newName } = data ?? {};
+  if (!oldUsername || !password || !newName) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing oldUsername, password, or newName');
+  }
+
+  const formatted = formatDisplayName(String(newName));
+  if (!validateDisplayNameFormat(formatted)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid name length or characters');
+  }
+  if (isProfaneDisplayName(formatted)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Name not usable');
+  }
+
+  const oldDocId = await resolveUserDocId(String(oldUsername));
+  if (!oldDocId) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  if (oldDocId === formatted) {
+    throw new functions.https.HttpsError('invalid-argument', 'New name matches current name');
+  }
+
+  const lower = usernameLowerKey(formatted);
+  const takenSnap = await db.collection(USERS_COLLECTION).where('usernameLower', '==', lower).limit(1).get();
+  if (!takenSnap.empty && takenSnap.docs[0].id !== oldDocId) {
+    throw new functions.https.HttpsError('already-exists', 'Name already taken');
+  }
+  const newDocSnap = await db.collection(USERS_COLLECTION).doc(formatted).get();
+  if (newDocSnap.exists && newDocSnap.id !== oldDocId) {
+    throw new functions.https.HttpsError('already-exists', 'Name already taken');
+  }
+
+  const oldRef = db.collection(USERS_COLLECTION).doc(oldDocId);
+  const oldSnap = await oldRef.get();
+  if (!oldSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  const userData = oldSnap.data() as Record<string, unknown>;
+  if (userData.password !== password) {
+    throw new functions.https.HttpsError('permission-denied', 'Incorrect password');
+  }
+
+  const isLegacyMigration =
+    isLegacyInitialsUsername(oldDocId) && userData.isLegacyInitials !== false && userData.legacyRenameUsed !== true;
+  const lastRenameAtMs = typeof userData.lastRenameAtMs === 'number' ? userData.lastRenameAtMs : 0;
+  if (!isLegacyMigration && lastRenameAtMs && Date.now() - lastRenameAtMs < RENAME_COOLDOWN_MS) {
+    throw new functions.https.HttpsError('failed-precondition', 'Rename locked — try again later');
+  }
+
+  const now = Date.now();
+  const newUser = {
+    ...userData,
+    username: formatted,
+    displayName: formatted,
+    usernameLower: lower,
+    lastRenameAtMs: now,
+    legacyRenameUsed: isLegacyMigration ? true : userData.legacyRenameUsed ?? false,
+    isLegacyInitials: false,
+  };
+
+  const batch = db.batch();
+  batch.set(db.collection(USERS_COLLECTION).doc(formatted), newUser);
+  batch.delete(oldRef);
+
+  const oldLb = db.collection(LEADERBOARD_COLLECTION).doc(oldDocId);
+  const lbSnap = await oldLb.get();
+  if (lbSnap.exists) {
+    batch.set(db.collection(LEADERBOARD_COLLECTION).doc(formatted), {
+      ...lbSnap.data(),
+      initials: formatted,
+    });
+    batch.delete(oldLb);
+  }
+
+  await batch.commit();
+
+  return {
+    success: true,
+    username: formatted,
+    displayName: formatted,
+    message: 'Name updated',
+  };
 });
 
 // ============================================

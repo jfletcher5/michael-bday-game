@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser } from '../lib/auth';
+import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { User, PlayerSettings } from '../lib/types';
+import { renameUserViaFunction, getDisplayName } from '../lib/firestore';
 import { usePlayerSettings } from '../components/PlayerSettingsProvider';
 import MenuBackground from '../components/MenuBackground';
 import TopNav from '../components/TopNav';
@@ -14,6 +15,13 @@ import {
   normalizeHexColor,
   withSettingsCode,
 } from '../lib/playerSettings';
+import {
+  formatDisplayName,
+  validateDisplayName,
+  renameCooldownDaysRemaining,
+  DISPLAY_NAME_MAX_LENGTH,
+  isLegacyInitialsUsername,
+} from '../lib/displayName';
 
 /**
  * Settings Page (MIE-4)
@@ -34,6 +42,11 @@ export default function SettingsPage() {
   const [applyError, setApplyError] = useState<string | null>(null);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renamePassword, setRenamePassword] = useState('');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameSuccess, setRenameSuccess] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // Require login — same gate as Shop.
   useEffect(() => {
@@ -110,6 +123,43 @@ export default function SettingsPage() {
     setTimeout(() => setApplySuccess(null), 2500);
   };
 
+  const needsLegacyRename =
+    !!user &&
+    isLegacyInitialsUsername(user.username) &&
+    user.isLegacyInitials !== false &&
+    user.legacyRenameUsed !== true;
+
+  const renameLockedDays = user ? renameCooldownDaysRemaining(user.lastRenameAtMs) : 0;
+
+  const handleRename = async () => {
+    if (!user) return;
+    setRenameError(null);
+    setRenameSuccess(null);
+    const validation = validateDisplayName(newName);
+    if (!validation.ok) {
+      setRenameError(validation.error);
+      return;
+    }
+    if (!renamePassword) {
+      setRenameError('Enter your password to confirm');
+      return;
+    }
+    setIsRenaming(true);
+    try {
+      const result = await renameUserViaFunction(user.username, renamePassword, validation.formatted);
+      const refreshed = { ...user, username: result.username, displayName: result.displayName, legacyRenameUsed: true, isLegacyInitials: false, lastRenameAtMs: Date.now() };
+      setUser(refreshed);
+      setCurrentUser(refreshed);
+      setRenameSuccess('Name updated!');
+      setNewName('');
+      setRenamePassword('');
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : 'Rename failed');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <MenuBackground className="min-h-screen flex items-center justify-center">
@@ -130,7 +180,48 @@ export default function SettingsPage() {
       <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-2xl mx-2 sm:mx-4 my-auto animate-page-in">
         <div className="text-center mb-6 sm:mb-7">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1">⚙️ Settings</h1>
-          <p className="text-sm text-gray-600">Customize zoom and menu colors</p>
+          <p className="text-sm text-gray-600">
+            Playing as <span className="font-bold">{getDisplayName(user)}</span>
+          </p>
+        </div>
+
+        {/* Rename (MIE-23) */}
+        <div className="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200">
+          <p className="text-sm font-medium text-gray-800 mb-1">Rename</p>
+          {needsLegacyRename ? (
+            <p className="text-xs text-amber-800 mb-3">One-time rename: pick a new name to replace your 3-letter id.</p>
+          ) : renameLockedDays > 0 ? (
+            <p className="text-xs text-gray-600 mb-3">You can rename again in {renameLockedDays} day(s).</p>
+          ) : (
+            <p className="text-xs text-gray-600 mb-3">Change your name (once every 30 days).</p>
+          )}
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(formatDisplayName(e.target.value))}
+            placeholder="New name"
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+            disabled={!needsLegacyRename && renameLockedDays > 0}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 disabled:opacity-50"
+          />
+          <input
+            type="password"
+            value={renamePassword}
+            onChange={(e) => setRenamePassword(e.target.value)}
+            placeholder="Password to confirm"
+            disabled={!needsLegacyRename && renameLockedDays > 0}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={handleRename}
+            disabled={isRenaming || (!needsLegacyRename && renameLockedDays > 0)}
+            className="w-full min-h-[44px] py-2 bg-amber-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            {isRenaming ? 'Saving...' : 'Rename'}
+          </button>
+          {renameError && <p className="text-xs text-red-600 mt-2">{renameError}</p>}
+          {renameSuccess && <p className="text-xs text-green-700 mt-2">{renameSuccess}</p>}
         </div>
 
         {/* Live gradient preview strip */}

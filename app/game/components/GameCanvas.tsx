@@ -146,6 +146,11 @@ interface GameCanvasProps {
   reviveSignalRef?: React.MutableRefObject<boolean>;
   mode: 'infinite' | 'level';
   customPlatforms?: Platform[];
+  customBombs?: Bomb[];
+  levelSkyColor?: string;
+  /** 1 = scroll down (default), -1 = scroll up in level mode (MIE-19). */
+  levelScrollSign?: number;
+  ballStartPosition?: { x: number; y: number };
   ballColor?: string;       // Optional custom ball color
   ballStrokeColor?: string; // Optional custom ball stroke color
   ballImageUrl?: string;    // Optional image URL for themed balls
@@ -212,6 +217,10 @@ export default function GameCanvas({
   reviveSignalRef,
   mode,
   customPlatforms = [],
+  customBombs = [],
+  levelSkyColor,
+  levelScrollSign = 1,
+  ballStartPosition,
   ballColor = '#ff6b6b',
   ballStrokeColor = '#cc0000',
   ballImageUrl,
@@ -627,6 +636,10 @@ export default function GameCanvas({
     ballRef.current = ball;
     Matter.World.add(engine.world, ball);
 
+    if (mode === 'level' && ballStartPosition) {
+      Matter.Body.setPosition(ball, { x: ballStartPosition.x, y: ballStartPosition.y });
+    }
+
     const initialPlatforms: Matter.Body[] = [];
     if (mode === 'level' && customPlatforms.length > 0) {
       customPlatforms.forEach(platformData => {
@@ -700,9 +713,11 @@ export default function GameCanvas({
     platformsRef.current = initialPlatforms;
     Matter.World.add(engine.world, initialPlatforms);
 
-    // Seed bombs in infinite mode only.
+    // Seed bombs — custom list in level mode, random on platforms in infinite mode.
     const initialBombs: Bomb[] = [];
-    if (mode === 'infinite') {
+    if (mode === 'level' && customBombs.length > 0) {
+      initialBombs.push(...customBombs);
+    } else if (mode === 'infinite') {
       initialPlatforms.forEach((platform, index) => {
         if (index === 0) return;
         const bomb = createBombOnPlatform(platform, `initial-${index}`);
@@ -728,7 +743,7 @@ export default function GameCanvas({
     emitBossHud(null);
     // Cache the 2D rendering context so we don't look it up every frame.
     ctxRef.current = canvas.getContext('2d');
-  }, [mode, customPlatforms, getDifficultySettings, createBombOnPlatform, emitBossHud]);
+  }, [mode, customPlatforms, customBombs, ballStartPosition, getDifficultySettings, createBombOnPlatform, emitBossHud]);
 
   // Centralized frame scheduling keeps requestAnimationFrame flow consistent.
   const scheduleNextFrame = useCallback(() => {
@@ -1010,7 +1025,7 @@ export default function GameCanvas({
 
     // Scroll platforms and bombs while the world is moving.
     // Multiply by dtScale so scroll speed is consistent across refresh rates.
-    const frameScroll = scrollSpeedRef.current * dtScale;
+    const frameScroll = scrollSpeedRef.current * dtScale * (mode === 'level' ? levelScrollSign : 1);
     platformsRef.current.forEach(platform => {
       Matter.Body.setPosition(platform, {
         x: platform.position.x,
@@ -1123,6 +1138,9 @@ export default function GameCanvas({
       grad.addColorStop(0, '#1a0533');
       grad.addColorStop(1, '#0d0033');
       ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+    } else if (mode === 'level' && levelSkyColor) {
+      ctx.fillStyle = levelSkyColor;
       ctx.fillRect(0, 0, width, height);
     } else {
       ctx.fillStyle = '#87CEEB';
@@ -1404,6 +1422,8 @@ export default function GameCanvas({
     isPlaying,
     maybeAwardAuroraShard,
     mode,
+    levelScrollSign,
+    levelSkyColor,
     reviveSignalRef,
     scheduleNextFrame,
     spawnThreeHundredChallenge,

@@ -54,25 +54,11 @@ export function getAvatarById(avatarId: number): AvatarOption | undefined {
   return AVATAR_OPTIONS.find(a => a.id === avatarId);
 }
 
-/**
- * Validate initials string
- * Must be exactly 3 uppercase letters (A-Z)
- * @param initials - The initials string to validate
- * @returns true if valid, false otherwise
- */
-export function validateInitials(initials: string): boolean {
-  return /^[A-Z]{3}$/.test(initials);
-}
-
-/**
- * Format initials to uppercase
- * Strips non-letter characters and limits to 3 characters
- * @param input - Raw input string
- * @returns Formatted initials (uppercase, letters only, max 3 chars)
- */
-export function formatInitials(input: string): string {
-  return input
-    .toUpperCase()
-    .replace(/[^A-Z]/g, '')
-    .slice(0, 3);
-}
+// Re-export display-name helpers; legacy initials helpers live in displayName.ts (MIE-23).
+export {
+  validateInitials,
+  formatInitials,
+  formatDisplayName,
+  validateDisplayName,
+  DISPLAY_NAME_MAX_LENGTH,
+} from './displayName';
