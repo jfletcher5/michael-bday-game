@@ -4,6 +4,7 @@ import "./globals.css";
 import { getCurrentSeasonConfig } from "./lib/seasons";
 import GlobalNotifications from "./components/GlobalNotifications";
 import PollModal from "./components/PollModal";
+import GiftNotifications from "./components/GiftNotifications";
 import EventOverlay from "./components/EventOverlay";
 import ClientProviders from "./components/ClientProviders";
 
@@ -41,6 +42,7 @@ export default function RootLayout({
         <ClientProviders>
           {children}
           <GlobalNotifications />
+          <GiftNotifications />
           <PollModal />
           <EventOverlay />
         </ClientProviders>

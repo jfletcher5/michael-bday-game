@@ -85,6 +85,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Shop gift audit log — clients write via giftShopItem transaction (MIE-21).
+    match /giftTransactions/{giftId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }
 

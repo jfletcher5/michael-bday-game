@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { purchaseBall, purchaseBallWithGems, purchaseGamepass, purchaseShopOffer, selectBall, getUserData, subscribeToActiveShopOffers } from '../lib/firestore';
-import { BALL_TYPES, getBallTypeById, isBallOwned, formatPrice } from '../lib/ballTypes';
+import { BALL_TYPES, getBallTypeById, isBallOwned, isBallGiftable, formatPrice } from '../lib/ballTypes';
 import { GAMEPASSES, formatGems, VIP_BALL_ID, type GamepassId } from '../lib/gamepasses';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { getOwnedProPassBalls } from '../lib/proPass';
 import { User, BallType, ShopOffer } from '../lib/types';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 import MenuBackground from '../components/MenuBackground';
+import GiftPlayerModal from '../components/GiftPlayerModal';
+import type { GiftShopItemRequest } from '../lib/firestore';
 import { PageHeader, PageHero, StatPill, Alert } from '../components/ui';
 
 function formatOfferTimeLeft(endsAtMs: number, nowMs: number): string {
@@ -46,6 +48,7 @@ export default function ShopPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [shopOffers, setShopOffers] = useState<ShopOffer[]>([]);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [giftItem, setGiftItem] = useState<GiftShopItemRequest | null>(null);
 
   // Load user data on mount
   useEffect(() => {
@@ -80,6 +83,19 @@ export default function ShopPage() {
     () => shopOffers.filter((offer) => offer.startAtMs <= nowMs && offer.endsAtMs > nowMs),
     [shopOffers, nowMs],
   );
+
+  const openGiftModal = (item: GiftShopItemRequest) => {
+    setError(null);
+    setSuccess(null);
+    setGiftItem(item);
+  };
+
+  const handleGiftSuccess = (updatedGifter: User, recipientUsername: string) => {
+    setUser(updatedGifter);
+    setCurrentUser(updatedGifter);
+    setSuccess(`Gift sent to ${recipientUsername}!`);
+  };
+
   // Handle gamepass purchase with gems
   const handleGamepassPurchase = async (passId: GamepassId) => {
     if (!user) return;
@@ -210,6 +226,29 @@ export default function ShopPage() {
     const isProcessingGems = purchaseLoading === `${ball.id}:gems`;
     const isProcessingSelect = purchaseLoading === ball.id;
     const isFreeClaim = ball.price === 0 && !hasGemPrice && !owned;
+    const giftable = isBallGiftable(ball);
+    const canGift = giftable && gemBalance >= (ball.gemPrice ?? 0);
+
+    const giftButton = giftable ? (
+      <button
+        type="button"
+        onClick={() =>
+          openGiftModal({
+            itemType: 'ball',
+            itemId: ball.id,
+            itemLabel: ball.name,
+            gemCost: ball.gemPrice!,
+          })
+        }
+        className={`w-full min-h-[40px] py-2 px-3 rounded-lg font-medium text-sm transition-all border-2 ${
+          canGift
+            ? 'border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100'
+            : 'border-gray-200 bg-gray-50 text-gray-400'
+        }`}
+      >
+        🎁 Gift · {formatGems(ball.gemPrice!)} gems
+      </button>
+    ) : null;
 
     return (
       <div
@@ -298,17 +337,20 @@ export default function ShopPage() {
 
         {/* Action buttons */}
         {owned ? (
-          <button
-            onClick={() => handleSelect(ball)}
-            disabled={selected || isProcessingSelect}
-            className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all mt-auto ${
-              selected
-                ? 'bg-purple-100 text-purple-600 cursor-default'
-                : 'bg-purple-500 text-white hover:bg-purple-600'
-            } disabled:opacity-50`}
-          >
-            {isProcessingSelect ? 'Selecting...' : selected ? 'Selected' : 'Select'}
-          </button>
+          <div className="flex flex-col gap-2 mt-auto">
+            <button
+              onClick={() => handleSelect(ball)}
+              disabled={selected || isProcessingSelect}
+              className={`w-full min-h-[44px] py-2 px-3 sm:px-4 rounded-lg font-medium text-sm transition-all ${
+                selected
+                  ? 'bg-purple-100 text-purple-600 cursor-default'
+                  : 'bg-purple-500 text-white hover:bg-purple-600'
+              } disabled:opacity-50`}
+            >
+              {isProcessingSelect ? 'Selecting...' : selected ? 'Selected' : 'Select'}
+            </button>
+            {giftButton}
+          </div>
         ) : hasGemPrice ? (
           <div className="flex flex-col gap-2 mt-auto">
             <button
@@ -333,6 +375,7 @@ export default function ShopPage() {
             >
               {isProcessingGems ? 'Purchasing...' : canAffordGems ? `Buy · ${formatGems(ball.gemPrice!)} gems` : 'Not enough gems'}
             </button>
+            {giftButton}
           </div>
         ) : (
           <button
@@ -399,24 +442,64 @@ export default function ShopPage() {
         )}
 
         {owned ? (
-          <button
-            disabled
-            className="w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm bg-green-100 text-green-700 cursor-default mt-auto"
-          >
-            Owned
-          </button>
+          <div className="flex flex-col gap-2 mt-auto">
+            <button
+              disabled
+              className="w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm bg-green-100 text-green-700 cursor-default"
+            >
+              Owned
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                openGiftModal({
+                  itemType: 'gamepass',
+                  itemId: pass.id,
+                  itemLabel: `${pass.name} gamepass`,
+                  gemCost: pass.gemPrice,
+                })
+              }
+              className={`w-full min-h-[40px] py-2 px-3 rounded-lg font-medium text-sm transition-all border-2 ${
+                canAfford
+                  ? 'border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100'
+                  : 'border-gray-200 bg-gray-50 text-gray-400'
+              }`}
+            >
+              🎁 Gift · {formatGems(pass.gemPrice)} gems
+            </button>
+          </div>
         ) : (
-          <button
-            onClick={() => handleGamepassPurchase(pass.id)}
-            disabled={!canAfford || isProcessing}
-            className={`w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm transition-all mt-auto ${
-              canAfford
-                ? 'bg-cyan-500 text-white hover:bg-cyan-600'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            } disabled:opacity-50`}
-          >
-            {isProcessing ? 'Purchasing...' : canAfford ? 'Buy Gamepass' : 'Not enough gems'}
-          </button>
+          <div className="flex flex-col gap-2 mt-auto">
+            <button
+              onClick={() => handleGamepassPurchase(pass.id)}
+              disabled={!canAfford || isProcessing}
+              className={`w-full min-h-[44px] py-2 px-3 rounded-lg font-medium text-sm transition-all ${
+                canAfford
+                  ? 'bg-cyan-500 text-white hover:bg-cyan-600'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              } disabled:opacity-50`}
+            >
+              {isProcessing ? 'Purchasing...' : canAfford ? 'Buy Gamepass' : 'Not enough gems'}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                openGiftModal({
+                  itemType: 'gamepass',
+                  itemId: pass.id,
+                  itemLabel: `${pass.name} gamepass`,
+                  gemCost: pass.gemPrice,
+                })
+              }
+              className={`w-full min-h-[40px] py-2 px-3 rounded-lg font-medium text-sm transition-all border-2 ${
+                canAfford
+                  ? 'border-pink-300 bg-pink-50 text-pink-700 hover:bg-pink-100'
+                  : 'border-gray-200 bg-gray-50 text-gray-400'
+              }`}
+            >
+              🎁 Gift · {formatGems(pass.gemPrice)} gems
+            </button>
+          </div>
         )}
       </div>
     );
@@ -625,6 +708,16 @@ export default function ShopPage() {
           </div>
         </div>
       </div>
+
+      {user && giftItem && (
+        <GiftPlayerModal
+          open={giftItem !== null}
+          gifter={user}
+          giftItem={giftItem}
+          onClose={() => setGiftItem(null)}
+          onSuccess={handleGiftSuccess}
+        />
+      )}
     </MenuBackground>
   );
 }
