@@ -10,17 +10,19 @@ import {
   getMyLevels,
   updateLevelDocument,
 } from '../lib/firestore';
-import type { LevelDocument, LevelPlatformObject, LevelBombObject, LevelScrollDirection } from '../lib/types';
+import type { LevelDocument, LevelPlatformObject, LevelScrollDirection } from '../lib/types';
 import { validateLevelDocument } from '../lib/levelValidation';
 import {
   LEVEL_WORLD_WIDTH,
   LEVEL_WORLD_HEIGHT,
   LEVEL_BOMB_RADIUS,
+  LEVEL_SPIKE_WIDTH,
   getAllLevelPlatforms,
   screenToWorld,
   getEditorScale,
   hitTestPlatform,
   hitTestBomb,
+  hitTestSpike,
   hitTestSpawner,
   SPAWNER_PLATFORM_ID,
   type LevelEditorTool,
@@ -41,7 +43,10 @@ export default function StudioPage() {
 function StudioEditor() {
   const router = useRouter();
   const params = useSearchParams();
-  const user = getCurrentUser();
+  // Stabilize session user — getCurrentUser() returns a new object every call and was
+  // retriggering effects that wiped local editor state (MIE-24/26/27).
+  const [user] = useState(() => getCurrentUser());
+  const levelIdParam = params.get('id');
 
   const [level, setLevel] = useState<LevelDocument | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<string>('');
@@ -111,6 +116,38 @@ function StudioEditor() {
       }
     });
 
+    // Draw Studio spike traps: yellow warning line + grey triangles (MIE-30).
+    (level.spikes ?? []).forEach((s) => {
+      const spikeScale = s.scale ?? 1;
+      const w = (s.width ?? LEVEL_SPIKE_WIDTH) * spikeScale * scale;
+      const cx = s.x * scale + offsetX;
+      const cy = s.y * scale + offsetY;
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx - w / 2, cy);
+      ctx.lineTo(cx + w / 2, cy);
+      ctx.stroke();
+      const triCount = 4;
+      const triW = w / triCount;
+      const triH = 18 * spikeScale * scale;
+      ctx.fillStyle = '#6b7280';
+      for (let i = 0; i < triCount; i++) {
+        const left = cx - w / 2 + i * triW;
+        ctx.beginPath();
+        ctx.moveTo(left + 1, cy);
+        ctx.lineTo(left + triW / 2, cy - triH);
+        ctx.lineTo(left + triW - 1, cy);
+        ctx.closePath();
+        ctx.fill();
+      }
+      if (selected?.kind === 'spike' && selected.id === s.id) {
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(cx - w / 2 - 2, cy - triH - 2, w + 4, triH + 8);
+      }
+    });
+
     if (level.ballSpawner) {
       const cx = level.ballSpawner.x * scale + offsetX;
       const cy = level.ballSpawner.y * scale + offsetY;
@@ -164,19 +201,24 @@ function StudioEditor() {
       .catch(() => setErrorMsg('Failed to load your levels.'));
   }, [user, router]);
 
-  // Deep-link load — no discard prompt on first open.
+  // Deep-link load once per level id — skip if that level is already open so edits aren't overwritten.
   useEffect(() => {
-    const id = params.get('id');
-    if (!id || !user) return;
-    getLevelDocument(id, user).then((doc) => {
+    if (!levelIdParam || !user) return;
+    if (level?.id === levelIdParam) return;
+    let cancelled = false;
+    getLevelDocument(levelIdParam, user).then((doc) => {
+      if (cancelled) return;
       if (!doc || doc.authorUsername !== user.username) {
-        if (id) setErrorMsg('Could not open that level.');
+        setErrorMsg('Could not open that level.');
         return;
       }
       setLevel(doc);
       setSavedSnapshot(JSON.stringify(doc));
     });
-  }, [params, user]);
+    return () => {
+      cancelled = true;
+    };
+  }, [levelIdParam, user, level?.id]);
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -281,6 +323,15 @@ function StudioEditor() {
         bombs: [...prev.bombs, { id, x: wx, y: wy, scale: 1, rotation: 0 }],
       }));
       setSelected({ kind: 'bomb', id });
+      return;
+    }
+    // Spike trap placement — warning line at click Y (MIE-30).
+    if (tool === 'spike') {
+      updateLevelState((prev) => ({
+        ...prev,
+        spikes: [...(prev.spikes ?? []), { id, x: wx, y: wy, width: LEVEL_SPIKE_WIDTH, scale: 1, rotation: 0 }],
+      }));
+      setSelected({ kind: 'spike', id });
     }
   };
 
@@ -305,6 +356,13 @@ function StudioEditor() {
           b.id === selected.id ? { ...b, x: b.x + dx, y: b.y + dy } : b,
         ),
       }));
+    } else if (selected.kind === 'spike') {
+      updateLevelState((prev) => ({
+        ...prev,
+        spikes: (prev.spikes ?? []).map((s) =>
+          s.id === selected.id ? { ...s, x: s.x + dx, y: s.y + dy } : s,
+        ),
+      }));
     }
   };
 
@@ -322,6 +380,11 @@ function StudioEditor() {
         ...prev,
         bombs: prev.bombs.filter((b) => b.id !== selected.id),
       }));
+    } else if (selected.kind === 'spike') {
+      updateLevelState((prev) => ({
+        ...prev,
+        spikes: (prev.spikes ?? []).filter((s) => s.id !== selected.id),
+      }));
     }
     setSelected(null);
   };
@@ -336,12 +399,19 @@ function StudioEditor() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [showSettings, selected, level]);
 
+  /** Map CSS pointer position into canvas backing-store pixels (canvas is CSS-scaled). */
+  const clientToCanvasCoords = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      sx: ((clientX - rect.left) / rect.width) * canvas.width,
+      sy: ((clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+
   const handlePointerDown = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas || !level) return;
-    const rect = canvas.getBoundingClientRect();
-    const sx = clientX - rect.left;
-    const sy = clientY - rect.top;
+    const { sx, sy } = clientToCanvasCoords(canvas, clientX, clientY);
     const { x: wx, y: wy } = screenToWorld(sx, sy, canvas.width, canvas.height, panRef.current);
 
     if (tool === 'pan') {
@@ -359,6 +429,12 @@ function StudioEditor() {
       if (bomb) {
         setSelected({ kind: 'bomb', id: bomb.id });
         dragRef.current = { kind: 'move', startX: wx, startY: wy, originX: bomb.x, originY: bomb.y };
+        return;
+      }
+      const spike = hitTestSpike(level.spikes ?? [], wx, wy);
+      if (spike) {
+        setSelected({ kind: 'spike', id: spike.id });
+        dragRef.current = { kind: 'move', startX: wx, startY: wy, originX: spike.x, originY: spike.y };
         return;
       }
       const platform = hitTestPlatform(getAllLevelPlatforms(level).filter((p) => p.id !== SPAWNER_PLATFORM_ID), wx, wy)
@@ -379,9 +455,7 @@ function StudioEditor() {
     const canvas = canvasRef.current;
     const drag = dragRef.current;
     if (!canvas || !drag || !level) return;
-    const rect = canvas.getBoundingClientRect();
-    const sx = clientX - rect.left;
-    const sy = clientY - rect.top;
+    const { sx, sy } = clientToCanvasCoords(canvas, clientX, clientY);
 
     if (drag.kind === 'pan') {
       panRef.current.x = drag.originX + (sx - drag.startX);
@@ -414,6 +488,13 @@ function StudioEditor() {
           b.id === selected.id ? { ...b, x: drag.originX + dx, y: drag.originY + dy } : b,
         ),
       }));
+    } else if (selected.kind === 'spike') {
+      updateLevelState((prev) => ({
+        ...prev,
+        spikes: (prev.spikes ?? []).map((s) =>
+          s.id === selected.id ? { ...s, x: drag.originX + dx, y: drag.originY + dy } : s,
+        ),
+      }));
     }
   };
 
@@ -421,6 +502,8 @@ function StudioEditor() {
     selected?.kind === 'platform' ? level?.platforms.find((p) => p.id === selected.id) : undefined;
   const selectedBomb =
     selected?.kind === 'bomb' ? level?.bombs.find((b) => b.id === selected.id) : undefined;
+  const selectedSpike =
+    selected?.kind === 'spike' ? (level?.spikes ?? []).find((s) => s.id === selected.id) : undefined;
 
   if (!user) return null;
 
@@ -454,6 +537,7 @@ function StudioEditor() {
           <p className="font-bold mt-3 mb-1">Workspace</p>
           <p className="text-gray-600">Platforms: {level?.platforms.length ?? 0}</p>
           <p className="text-gray-600">Bombs: {level?.bombs.length ?? 0}</p>
+          <p className="text-gray-600">Spikes: {level?.spikes?.length ?? 0}</p>
           <label htmlFor="screen-scroll" className="font-bold mt-3 mb-1 block">ScreenScroll</label>
           <select
             id="screen-scroll"
@@ -482,7 +566,7 @@ function StudioEditor() {
 
         <div className="flex-1 flex flex-col min-h-[400px]">
           <div className="flex flex-wrap gap-2 mb-2 items-center" role="toolbar" aria-label="Studio tools">
-            {(['select', 'platform', 'bomb', 'spawner', 'pan'] as LevelEditorTool[]).map((t) => (
+            {(['select', 'platform', 'bomb', 'spike', 'spawner', 'pan'] as LevelEditorTool[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -617,6 +701,32 @@ function StudioEditor() {
                   updateLevelState((prev) => ({
                     ...prev,
                     bombs: prev.bombs.map((b) => (b.id === selectedBomb.id ? { ...b, scale } : b)),
+                  }));
+                }}
+                className="w-full mb-2"
+              />
+              <button type="button" onClick={deleteSelected} className="w-full py-1 bg-red-500 text-white rounded-lg">
+                Delete
+              </button>
+            </>
+          ) : selectedSpike ? (
+            <>
+              <p className="text-xs text-gray-600 mb-2">Spike trap — yellow warning, 3s dwell in play</p>
+              <label htmlFor="spike-scale" className="block text-xs mb-1">Scale</label>
+              <input
+                id="spike-scale"
+                type="range"
+                min={0.5}
+                max={3}
+                step={0.1}
+                value={selectedSpike.scale ?? 1}
+                onChange={(e) => {
+                  const scale = parseFloat(e.target.value);
+                  updateLevelState((prev) => ({
+                    ...prev,
+                    spikes: (prev.spikes ?? []).map((s) =>
+                      s.id === selectedSpike.id ? { ...s, scale } : s,
+                    ),
                   }));
                 }}
                 className="w-full mb-2"

@@ -32,6 +32,8 @@ const EVENT_TYPES: { id: GameEventType; label: string; emoji: string; descriptio
   { id: 'meteor-shower', label: 'Meteor Shower', emoji: '☄️', description: 'Meteors streak across the screen.' },
   { id: 'crab-rave', label: 'Crab Rave', emoji: '🦀', description: 'Crab Rave audio with dancing crabs, lasers, and speakers.' },
   { id: 'aurora', label: 'Aurora Event', emoji: '🌌', description: 'Black and dark-green aurora sky with shard drops at 300m.' },
+  // Fossil Event unlocks jungle visuals + Fossil Exploration (MIE-31). Crafting deferred.
+  { id: 'fossil', label: 'Fossil Event', emoji: '🦴', description: 'Jungle sky in play + Fossil Exploration mode to collect fossils.' },
 ];
 
 const EVENT_DURATION_SEC = 5 * 60;

@@ -45,11 +45,9 @@ export default function LevelsPage() {
       .finally(() => setLoading(false));
   }, [router, user]);
 
+  // Only fetch when there is a term — empty UI uses derived [] (avoids setState-in-effect lint).
   useEffect(() => {
-    if (!searchTerm.trim()) {
-      setSearchResults([]);
-      return;
-    }
+    if (!searchTerm.trim()) return;
     const timer = setTimeout(() => {
       searchPublicLevels(searchTerm, 20)
         .then(setSearchResults)
@@ -57,6 +55,8 @@ export default function LevelsPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  const visibleSearchResults = searchTerm.trim() ? searchResults : [];
 
   if (!user) return null;
 
@@ -131,10 +131,10 @@ export default function LevelsPage() {
               {searchTerm.trim() && (
                 <section>
                   <h2 className="text-lg font-bold text-gray-800 mb-3">Search Results</h2>
-                  {searchResults.length === 0 ? (
+                  {visibleSearchResults.length === 0 ? (
                     <p className="text-gray-500">No matching public levels.</p>
                   ) : (
-                    <ul className="space-y-3">{searchResults.map(renderLevelRow)}</ul>
+                    <ul className="space-y-3">{visibleSearchResults.map(renderLevelRow)}</ul>
                   )}
                 </section>
               )}

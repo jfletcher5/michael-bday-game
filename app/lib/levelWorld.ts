@@ -6,8 +6,10 @@ import type {
   LevelDocument,
   LevelPlatformObject,
   LevelBombObject,
+  LevelSpikeObject,
   Platform,
   Bomb,
+  Spike,
   LevelScrollDirection,
 } from './types';
 
@@ -18,6 +20,11 @@ export const LEVEL_WORLD_HEIGHT = 520;
 /** Consistent bomb radius for editor preview and gameplay hitboxes. */
 export const LEVEL_BOMB_RADIUS = 14;
 
+/** Default spike trap width along a platform (MIE-30). */
+export const LEVEL_SPIKE_WIDTH = 80;
+/** Max spikes allowed in a Studio level (mirrors bomb cap). */
+export const MAX_LEVEL_SPIKES = 50;
+
 /** Default platform height in the editor. */
 export const DEFAULT_PLATFORM_HEIGHT = 16;
 export const DEFAULT_PLATFORM_WIDTH = 120;
@@ -27,11 +34,12 @@ export const SPAWNER_PLATFORM_WIDTH = 120;
 export const SPAWNER_PLATFORM_HEIGHT = 16;
 export const SPAWNER_PLATFORM_ID = 'spawner-platform';
 
-export type LevelEditorTool = 'select' | 'platform' | 'bomb' | 'spawner' | 'pan';
+export type LevelEditorTool = 'select' | 'platform' | 'bomb' | 'spike' | 'spawner' | 'pan';
 
 export type SelectedObject =
   | { kind: 'platform'; id: string }
   | { kind: 'bomb'; id: string }
+  | { kind: 'spike'; id: string }
   | { kind: 'spawner' }
   | null;
 
@@ -127,6 +135,21 @@ export function hitTestBomb(bombs: LevelBombObject[], wx: number, wy: number): L
   return null;
 }
 
+/** Hit-test spike traps by a horizontal strip around the warning line (MIE-30). */
+export function hitTestSpike(spikes: LevelSpikeObject[], wx: number, wy: number): LevelSpikeObject | null {
+  for (let i = spikes.length - 1; i >= 0; i--) {
+    const s = spikes[i];
+    const scale = s.scale ?? 1;
+    const w = (s.width ?? LEVEL_SPIKE_WIDTH) * scale;
+    const half = w / 2;
+    // Tall hit area so Studio selection is easy above the platform top.
+    if (wx >= s.x - half && wx <= s.x + half && wy >= s.y - 28 * scale && wy <= s.y + 10) {
+      return s;
+    }
+  }
+  return null;
+}
+
 export function hitTestSpawner(spawner: { x: number; y: number } | null, wx: number, wy: number): boolean {
   if (!spawner) return false;
   return Math.hypot(wx - spawner.x, wy - spawner.y) <= 18;
@@ -169,9 +192,25 @@ export function levelDocumentToBombs(level: LevelDocument): Bomb[] {
   }));
 }
 
+/** Convert Studio spikes into GameCanvas spike props (MIE-30). */
+export function levelDocumentToSpikes(level: LevelDocument): Spike[] {
+  return (level.spikes ?? []).map((s) => {
+    const scale = s.scale ?? 1;
+    return {
+      id: s.id,
+      x: s.x,
+      y: s.y,
+      width: (s.width ?? LEVEL_SPIKE_WIDTH) * scale,
+      scale,
+    };
+  });
+}
+
 /** Strip runtime-only id from Firestore payload bodies. */
 export function levelToFirestoreBody(level: LevelDocument): Omit<LevelDocument, 'id'> {
-  const { id: _id, ...body } = level;
+  // Strip document id before Cloud Function write payloads.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- omit id intentionally
+  const { id, ...body } = level;
   return body;
 }
 
@@ -227,6 +266,21 @@ export function normalizeLevelDocument(id: string, raw: Record<string, unknown>)
         }))
     : [];
 
+  // Spikes are optional on older level docs — default to [] (MIE-30).
+  const spikes = Array.isArray(raw.spikes)
+    ? raw.spikes
+        .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+        .slice(0, MAX_LEVEL_SPIKES)
+        .map((s, idx) => ({
+          id: typeof s.id === 'string' ? s.id : `spike-${idx}`,
+          x: typeof s.x === 'number' ? s.x : 0,
+          y: typeof s.y === 'number' ? s.y : 0,
+          width: typeof s.width === 'number' ? Math.max(40, Math.min(200, s.width)) : LEVEL_SPIKE_WIDTH,
+          rotation: typeof s.rotation === 'number' ? s.rotation : 0,
+          scale: typeof s.scale === 'number' ? Math.min(3, Math.max(0.5, s.scale)) : 1,
+        }))
+    : [];
+
   if (!authorUsername) return null;
 
   return {
@@ -243,6 +297,7 @@ export function normalizeLevelDocument(id: string, raw: Record<string, unknown>)
     ballSpawner,
     platforms: platforms.filter((p) => p.id !== SPAWNER_PLATFORM_ID),
     bombs,
+    spikes,
     archived: raw.archived === true,
   };
 }

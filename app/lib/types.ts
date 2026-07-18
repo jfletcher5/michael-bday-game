@@ -30,6 +30,9 @@ export interface PlayerSettings {
   settingsCode?: string; // Last generated PD-XXXXXX share code (display only)
 }
 
+/** Collectible fossil piece types found in Fossil Exploration (MIE-31). */
+export type FossilTypeId = 'amber' | 'bone' | 'shell' | 'claw' | 'fern';
+
 /**
  * User account stored in Firestore
  */
@@ -63,6 +66,8 @@ export interface User {
   playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
   auroraShards?: number; // Saved Aurora Shard progress, capped at 12
   auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
+  /** Typed fossil piece counts collected in Fossil Exploration (MIE-31). Crafting deferred. */
+  fossilInventory?: Partial<Record<FossilTypeId, number>>;
   ownedAvatarItems?: string[]; // Avatar item catalog ids the player owns (MIE-12)
   equippedAvatar?: EquippedAvatar; // One equipped item per body slot (MIE-12)
   skinColor?: string; // Hex body tint for 3D avatar — free, default #FFFFFF (MIE-18)
@@ -153,8 +158,9 @@ export interface AvatarDraft {
 /**
  * Supported game-event types triggered by admins.
  * Most are visual-only effects; Aurora also enables shard progression.
+ * Fossil enables jungle visuals + Fossil Exploration mode (MIE-31).
  */
-export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave' | 'aurora';
+export type GameEventType = 'taco-rain' | 'meteor-shower' | 'crab-rave' | 'aurora' | 'fossil';
 
 /**
  * A scheduled global game event broadcast to every logged-in player.
@@ -274,9 +280,9 @@ export interface ProPassData {
 export type GameState = 'playing' | 'revivePrompt' | 'gameOver' | 'finished';
 
 /**
- * Game mode - infinite or custom level
+ * Game mode - infinite, custom level, or fossil exploration (MIE-31)
  */
-export type GameMode = 'infinite' | 'level';
+export type GameMode = 'infinite' | 'level' | 'fossil';
 
 /**
  * Input controls interface for ball movement (left/right and jump)
@@ -308,6 +314,18 @@ export interface Bomb {
   x: number;            // X position (center)
   y: number;            // Y position (center)
   radius: number;       // Bomb radius
+}
+
+/**
+ * Runtime spike trap for GameCanvas (MIE-30).
+ * Center sits on the platform top; triangles rise after a dwell timer.
+ */
+export interface Spike {
+  id: string;
+  x: number;            // Center X on the platform
+  y: number;            // Platform top Y (warning line)
+  width: number;        // Trap width along the platform
+  scale?: number;       // Studio scale multiplier (default 1)
 }
 
 /**
@@ -347,6 +365,16 @@ export interface LevelBombObject {
   scale?: number;
 }
 
+/** Placed spike trap in a user-created level (MIE-30). */
+export interface LevelSpikeObject {
+  id: string;
+  x: number;
+  y: number;
+  width?: number;
+  rotation?: number;
+  scale?: number;
+}
+
 /**
  * Firestore levels/{levelId} document (MIE-19).
  */
@@ -365,6 +393,7 @@ export interface LevelDocument {
   ballSpawner: { x: number; y: number } | null;
   platforms: LevelPlatformObject[];
   bombs: LevelBombObject[];
+  spikes?: LevelSpikeObject[]; // Optional for older level docs; default []
 }
 
 /** @deprecated Use LevelDocument — kept for GameCanvas platform prop compatibility. */

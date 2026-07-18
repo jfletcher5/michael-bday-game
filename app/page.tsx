@@ -8,13 +8,15 @@ import {
   ensureUserAvatarMigration,
   getUserData,
   subscribeToAvatarItems,
+  subscribeToActiveEvents,
 } from './lib/firestore';
-import { User, AvatarItem } from './lib/types';
+import { User, AvatarItem, GameEvent } from './lib/types';
 import { getAvatarUrl } from './lib/avatars';
 import { mergeAvatarCatalog, getEquippedAvatarItems, DEFAULT_SKIN_COLOR } from './lib/avatarItems';
 import Avatar3DViewer from './components/Avatar3DViewer';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining } from './lib/seasons';
 import { formatPrice } from './lib/ballTypes';
+import { isFossilEventActive } from './lib/gameEvents';
 import TopNav from './components/TopNav';
 import MenuBackground from './components/MenuBackground';
 
@@ -28,6 +30,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [avatarCatalog, setAvatarCatalog] = useState<AvatarItem[]>([]);
+  // Fossil Exploration button is event-gated (MIE-31).
+  const [activeEvents, setActiveEvents] = useState<GameEvent[]>([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Load player identity and user data on mount
   useEffect(() => {
@@ -67,11 +72,22 @@ export default function Home() {
       if (!cancelled) setAvatarCatalog(mergeAvatarCatalog(items));
     });
 
+    const unsubEvents = subscribeToActiveEvents((evts) => {
+      if (!cancelled) setActiveEvents(evts);
+    });
+
     return () => {
       cancelled = true;
       unsubAvatars();
+      unsubEvents();
     };
   }, [router]);
+
+  // Tick so the Fossil Exploration button appears/disappears when the event window changes.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
   
   // Handle logout - redirect to login
   const handleLogout = () => {
@@ -90,6 +106,13 @@ export default function Home() {
       // User is logged in, game will use their user data
       router.push('/game?mode=infinite');
     }
+  };
+
+  // Event-only Fossil Exploration entry (MIE-31) — crafting deferred.
+  const fossilLive = isFossilEventActive(activeEvents, nowMs);
+  const handleFossilExploration = () => {
+    if (!canStartGame || !fossilLive) return;
+    router.push('/fossil-exploration');
   };
 
   // Navigate to leaderboard
@@ -220,12 +243,24 @@ export default function Home() {
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                {canStartGame ? '▶  Start Game' : 'Loading...'}
+                {canStartGame ? '▶  Start Game' : 'Loading…'}
               </button>
+
+              {/* Shown only while Fossil Event is live (MIE-31). */}
+              {fossilLive && (
+                <button
+                  type="button"
+                  onClick={handleFossilExploration}
+                  disabled={!canStartGame}
+                  className="w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-lime-600 text-white hover:from-emerald-700 hover:to-lime-700 hover:scale-[1.02] active:scale-95 transition-[transform,background-color] duration-200 shadow-lg text-base disabled:opacity-50"
+                >
+                  🦴  Fossil Exploration
+                </button>
+              )}
 
               <button
                 onClick={handleViewLeaderboard}
-                className="w-full bg-gray-100 text-gray-800 font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:bg-gray-200 transition-all transform hover:scale-[1.02] active:scale-95 text-base"
+                className="w-full bg-gray-100 text-gray-800 font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:bg-gray-200 transition-[transform,background-color] duration-200 transform hover:scale-[1.02] active:scale-95 text-base"
               >
                 🏆  View Leaderboard
               </button>

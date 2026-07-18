@@ -25,7 +25,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from './firebase';
-import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings, PendingGift, GiftTransaction, RenameUserResult, LevelDocument, FriendRequest, Friendship, ChatMessage, RaceChallenge } from './types';
+import { Score, User, SeasonData, ProPassData, LoginCredentials, GameEvent, GameEventType, BroadcastMessage, ShopOffer, Poll, PlayerSettings, PendingGift, GiftTransaction, RenameUserResult, LevelDocument, FriendRequest, Friendship, ChatMessage, RaceChallenge, FossilTypeId } from './types';
 import { getCurrentSeasonId, getSeasonConfig } from './seasons';
 import type { SeasonConfig } from './seasons';
 import {
@@ -41,6 +41,7 @@ import {
   type ProPassConfig,
 } from './proPass';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
+import { addFossilToInventory } from './fossils';
 import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
 import { getBallTypeById } from './ballTypes';
 import {
@@ -341,7 +342,10 @@ export async function searchPlayersByPrefix(term: string, max = 20): Promise<Use
     limit(max),
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => normalizeUserAvatarFields(d.data() as User));
+  // Always prefer doc id as username so friend requests target the correct account (MIE-25).
+  return snap.docs.map((d) =>
+    normalizeUserAvatarFields({ ...(d.data() as User), username: d.id }),
+  );
 }
 
 // Collection name for season pass reward definitions
@@ -696,6 +700,39 @@ export async function awardAuroraShard(username: string): Promise<AuroraShardAwa
       awarded: true,
       auroraShards: nextShards,
       auroraBallUnlocked: unlocked,
+    };
+  });
+}
+
+/** Result of awarding one fossil piece collected in Fossil Exploration (MIE-31). */
+export interface FossilAwardResult {
+  user: User;
+  type: FossilTypeId;
+  inventory: Partial<Record<FossilTypeId, number>>;
+}
+
+/**
+ * Persist one collected fossil piece on the user document (transactional).
+ * Crafting into event balls is deferred to a follow-up ticket.
+ */
+export async function awardFossilPiece(
+  username: string,
+  type: FossilTypeId,
+): Promise<FossilAwardResult> {
+  const userRef = doc(db, USERS_COLLECTION, username);
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    const inventory = addFossilToInventory(userData.fossilInventory, type, 1);
+    transaction.update(userRef, { fossilInventory: inventory });
+
+    return {
+      user: { ...userData, fossilInventory: inventory },
+      type,
+      inventory,
     };
   });
 }
@@ -2076,9 +2113,13 @@ export async function touchUserPresence(username: string): Promise<void> {
 }
 
 export async function sendFriendRequest(fromUsername: string, toUsername: string): Promise<void> {
-  if (fromUsername === toUsername) throw new Error('Cannot friend yourself');
+  // Use exact account usernames (doc ids) — do not uppercase; MIE-23 names are case-preserving.
+  const from = fromUsername.trim();
+  const to = toUsername.trim();
+  if (!from || !to) throw new Error('Invalid username');
+  if (from.toLowerCase() === to.toLowerCase()) throw new Error('Cannot friend yourself');
 
-  const pairId = friendshipPairId(fromUsername, toUsername);
+  const pairId = friendshipPairId(from, to);
   const existingFriendship = await getDoc(doc(db, FRIENDSHIPS_COLLECTION, pairId));
   if (existingFriendship.exists()) {
     const data = existingFriendship.data() as Friendship;
@@ -2086,33 +2127,51 @@ export async function sendFriendRequest(fromUsername: string, toUsername: string
     throw new Error('Already friends');
   }
 
+  // Single-field query avoids composite-index failures on send (MIE-25).
   const q = query(
     collection(db, FRIEND_REQUESTS_COLLECTION),
-    where('fromUsername', '==', fromUsername),
-    where('toUsername', '==', toUsername),
-    where('status', '==', 'pending'),
-    limit(1),
+    where('fromUsername', '==', from),
   );
   const pending = await getDocs(q);
-  if (!pending.empty) throw new Error('Request already sent');
+  const alreadySent = pending.docs.some((d) => {
+    const data = d.data() as Omit<FriendRequest, 'id'>;
+    return data.toUsername === to && data.status === 'pending';
+  });
+  if (alreadySent) throw new Error('Request already sent');
 
   await addDoc(collection(db, FRIEND_REQUESTS_COLLECTION), {
-    fromUsername,
-    toUsername,
+    fromUsername: from,
+    toUsername: to,
     status: 'pending',
     createdAtMs: Date.now(),
   });
 }
 
 export async function getIncomingFriendRequests(toUsername: string): Promise<FriendRequest[]> {
+  // Single-field query (auto-indexed) + client filter/sort so Incoming works even when
+  // composite indexes are missing or still building (MIE-24/25).
   const q = query(
     collection(db, FRIEND_REQUESTS_COLLECTION),
-    where('toUsername', '==', toUsername),
-    where('status', '==', 'pending'),
-    orderBy('createdAtMs', 'desc'),
+    where('toUsername', '==', toUsername.trim()),
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }))
+    .filter((r) => r.status === 'pending')
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
+}
+
+/** Outgoing pending requests for the Friends UI (sender confirmation). */
+export async function getOutgoingFriendRequests(fromUsername: string): Promise<FriendRequest[]> {
+  const q = query(
+    collection(db, FRIEND_REQUESTS_COLLECTION),
+    where('fromUsername', '==', fromUsername.trim()),
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as Omit<FriendRequest, 'id'>) }))
+    .filter((r) => r.status === 'pending')
+    .sort((a, b) => b.createdAtMs - a.createdAtMs);
 }
 
 export async function acceptFriendRequest(requestId: string): Promise<void> {

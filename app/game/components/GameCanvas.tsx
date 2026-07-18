@@ -9,11 +9,13 @@ import {
   AURORA_SHARD_GOAL,
   AURORA_SHARD_MESSAGE_DURATION_MS,
 } from '@/app/lib/aurora';
+import { isEventTypeLive } from '@/app/lib/gameEvents';
 import YouTubeBackground from '@/app/components/YouTubeBackground';
 import {
   Controls,
   Platform,
   Bomb,
+  Spike,
   BossEncounterConfig,
   BossHudState,
   BossArenaSegment,
@@ -54,11 +56,111 @@ const CRAB_RAVE_VIDEO_ID = 'LDU_Txk06tM';
 // Skip the intro and start at the drop.
 const CRAB_RAVE_START_SEC = 25;
 
-/** True when an event type is inside its scheduled active window. */
-function isEventTypeLive(events: GameEvent[], type: GameEvent['type'], nowMs: number): boolean {
-  return events.some(
-    (e) => e.type === type && nowMs >= e.startAtMs && nowMs < e.startAtMs + e.durationSec * 1000,
-  );
+/** Runtime spike trap state for infinite + level modes (MIE-30). */
+interface SpikeTrapRuntime {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  /** Matter body id when attached to an infinite-mode platform. */
+  platformBodyId?: number;
+  dwellStartMs: number | null;
+  spikesRaised: boolean;
+  riseProgress: number; // 0–1 animation after the 3s dwell
+}
+
+const SPIKE_DWELL_MS = 3000;
+const SPIKE_RISE_MS = 280;
+const SPIKE_TRIANGLE_COUNT = 4;
+const SPIKE_HEIGHT = 22;
+
+/** Point-in-triangle test for raised spike killboxes (MIE-30). */
+function pointInTriangle(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): boolean {
+  const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+  const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+  const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+/** Draw grey triangle spikes along a trap (riseProgress 0–1). */
+function drawSpikeTriangles(
+  ctx: CanvasRenderingContext2D,
+  trap: SpikeTrapRuntime,
+  riseProgress: number,
+) {
+  if (riseProgress <= 0) return;
+  const count = SPIKE_TRIANGLE_COUNT;
+  const spikeW = trap.width / count;
+  const h = SPIKE_HEIGHT * riseProgress;
+  ctx.fillStyle = '#6b7280';
+  ctx.strokeStyle = '#374151';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < count; i++) {
+    const left = trap.x - trap.width / 2 + i * spikeW;
+    const tipX = left + spikeW / 2;
+    const baseY = trap.y;
+    const tipY = trap.y - h;
+    ctx.beginPath();
+    ctx.moveTo(left + 1, baseY);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(left + spikeW - 1, baseY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** Jungle sky + simple trees/vines while Fossil Event is live (MIE-31). */
+function drawJungleSky(ctx: CanvasRenderingContext2D, width: number, height: number, nowMs: number) {
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, '#0f3d2e');
+  sky.addColorStop(0.45, '#1a5c3a');
+  sky.addColorStop(1, '#0b291c');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+
+  // Soft canopy silhouettes
+  ctx.fillStyle = 'rgba(8, 40, 22, 0.55)';
+  for (let i = 0; i < 6; i++) {
+    const cx = ((i * 137 + nowMs * 0.01) % (width + 120)) - 60;
+    const cy = 40 + (i % 3) * 18;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 90, 36, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Tree trunks along the bottom third (decorative, no physics)
+  for (let i = 0; i < 5; i++) {
+    const tx = (width / 5) * i + 40;
+    ctx.fillStyle = '#3e2723';
+    ctx.fillRect(tx, height * 0.55, 14, height * 0.45);
+    ctx.fillStyle = '#1b5e20';
+    ctx.beginPath();
+    ctx.ellipse(tx + 7, height * 0.52, 38, 28, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Hanging vines
+  ctx.strokeStyle = 'rgba(76, 175, 80, 0.7)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 8; i++) {
+    const vx = 30 + i * (width / 8);
+    ctx.beginPath();
+    ctx.moveTo(vx, 0);
+    ctx.quadraticCurveTo(vx + 12, height * 0.2, vx - 8, height * 0.35 + (i % 3) * 10);
+    ctx.stroke();
+  }
 }
 
 /** Sweeping club lasers drawn over the gameplay canvas during Crab Rave. */
@@ -148,6 +250,8 @@ interface GameCanvasProps {
   mode: 'infinite' | 'level';
   customPlatforms?: Platform[];
   customBombs?: Bomb[];
+  /** Studio-placed spike traps for level mode (MIE-30). */
+  customSpikes?: Spike[];
   levelSkyColor?: string;
   /** Scroll direction vector for level mode (MIE-19). */
   levelScrollVector?: { x: number; y: number };
@@ -201,6 +305,8 @@ const PLATFORM_SPAWN_Y = 100;
 const JUMP_FORCE = 0.18;
 const BOMB_RADIUS = 15;
 const BOMB_SPAWN_CHANCE = 0.3;
+/** Every Nth ordinary infinite platform gets a spike trap (MIE-30). */
+const SPIKE_PLATFORM_INTERVAL = 8;
 
 // Convert target traversal time into pixels-per-60Hz-frame for a given canvas height.
 // At 60 FPS, we need `canvasHeight / (seconds * 60)` pixels per frame.
@@ -223,6 +329,7 @@ export default function GameCanvas({
   mode,
   customPlatforms = [],
   customBombs = [],
+  customSpikes = [],
   levelSkyColor,
   levelScrollVector,
   levelScrollSign = 1,
@@ -244,6 +351,9 @@ export default function GameCanvas({
   const ballRef = useRef<Matter.Body | null>(null);
   const platformsRef = useRef<Matter.Body[]>([]);
   const bombsRef = useRef<Bomb[]>([]);
+  // Spike traps for infinite (every 8th platform) + level Studio placements (MIE-30).
+  const spikeTrapsRef = useRef<SpikeTrapRuntime[]>([]);
+  const platformSpawnCountRef = useRef(0);
   const scrollDistanceRef = useRef(0);
   const scrollSpeedRef = useRef(0);
   const originalScrollSpeedRef = useRef(0);
@@ -286,6 +396,7 @@ export default function GameCanvas({
   const crabRaveActiveRef = useRef(false);
   const [crabRaveActive, setCrabRaveActive] = useState(false);
   const auroraActiveRef = useRef(false);
+  const fossilActiveRef = useRef(false); // Jungle visuals during Fossil Event (MIE-31)
   const auroraShardCountRef = useRef(auroraShardCount);
   const auroraBallUnlockedRef = useRef(auroraBallUnlocked);
   const auroraShardNotificationRef = useRef<AuroraShardNotification | null>(null);
@@ -374,8 +485,9 @@ export default function GameCanvas({
   const randomInRange = (min: number, max: number) => min + (Math.random() * (max - min));
 
   const createBombOnPlatform = useCallback((platform: Matter.Body, platformId: string): Bomb | null => {
-    // Boss arena platforms intentionally avoid bomb spawning.
+    // Boss arena / spike-trap platforms intentionally avoid bomb spawning (MIE-30).
     if (platform.label.startsWith('bossArena')) return null;
+    if (platform.label === 'spikeTrap') return null;
     if (Math.random() > BOMB_SPAWN_CHANCE) return null;
 
     return {
@@ -384,6 +496,21 @@ export default function GameCanvas({
       y: platform.bounds.min.y - BOMB_RADIUS - 5,
       radius: BOMB_RADIUS,
     };
+  }, []);
+
+  /** Register a spike trap attached to an infinite-mode platform (MIE-30). */
+  const attachSpikeTrapToPlatform = useCallback((platform: Matter.Body, trapId: string) => {
+    const width = Math.min(platform.bounds.max.x - platform.bounds.min.x, 120);
+    spikeTrapsRef.current.push({
+      id: trapId,
+      x: platform.position.x,
+      y: platform.bounds.min.y,
+      width: Math.max(60, width * 0.85),
+      platformBodyId: platform.id,
+      dwellStartMs: null,
+      spikesRaised: false,
+      riseProgress: 0,
+    });
   }, []);
 
   const isBodyGroundedOnPlatforms = useCallback((body: Matter.Body, radius: number, contactTolerance = 8) => {
@@ -640,6 +767,10 @@ export default function GameCanvas({
       Matter.Engine.clear(engineRef.current);
     }
 
+    // Reset spike trap runtime so revive/restart never re-kills instantly (MIE-30).
+    spikeTrapsRef.current = [];
+    platformSpawnCountRef.current = 0;
+
     const engine = Matter.Engine.create({
       gravity: { x: 0, y: 2 },
     });
@@ -705,6 +836,8 @@ export default function GameCanvas({
       });
     } else {
       // Infinite mode starts with a safe set of random platforms.
+      // Count ordinary platforms toward every-8th spike traps (MIE-30).
+      platformSpawnCountRef.current = 0;
       const firstPlatformY = height / 2 + 150;
       const firstPlatform = Matter.Bodies.rectangle(
         width / 2,
@@ -714,9 +847,12 @@ export default function GameCanvas({
         { isStatic: true, label: 'platform', friction: 0.8 }
       );
       initialPlatforms.push(firstPlatform);
+      platformSpawnCountRef.current += 1;
 
       const difficulty = getDifficultySettings(0);
       for (let index = 1; index < 6; index++) {
+        platformSpawnCountRef.current += 1;
+        const isSpikePlatform = platformSpawnCountRef.current % SPIKE_PLATFORM_INTERVAL === 0;
         const platformWidth = randomInRange(difficulty.platformMinWidth, difficulty.platformMaxWidth);
         const platformX = randomInRange(platformWidth / 2, width - (platformWidth / 2));
         const platformY = firstPlatformY + index * randomInRange(difficulty.platformGapMin, difficulty.platformGapMax);
@@ -725,9 +861,12 @@ export default function GameCanvas({
           platformY,
           platformWidth,
           PLATFORM_HEIGHT,
-          { isStatic: true, label: 'platform', friction: 0.8 }
+          { isStatic: true, label: isSpikePlatform ? 'spikeTrap' : 'platform', friction: 0.8 }
         );
         initialPlatforms.push(platform);
+        if (isSpikePlatform) {
+          attachSpikeTrapToPlatform(platform, `spike-init-${platformSpawnCountRef.current}`);
+        }
       }
     }
 
@@ -741,11 +880,28 @@ export default function GameCanvas({
     } else if (mode === 'infinite') {
       initialPlatforms.forEach((platform, index) => {
         if (index === 0) return;
+        if (platform.label === 'spikeTrap') return;
         const bomb = createBombOnPlatform(platform, `initial-${index}`);
         if (bomb) initialBombs.push(bomb);
       });
     }
     bombsRef.current = initialBombs;
+
+    // Seed Studio-placed spikes in level mode (MIE-30).
+    if (mode === 'level' && customSpikes.length > 0) {
+      spikeTrapsRef.current = customSpikes.map((s) => ({
+        id: s.id,
+        x: s.x,
+        y: s.y,
+        width: s.width,
+        dwellStartMs: null,
+        spikesRaised: false,
+        riseProgress: 0,
+      }));
+    } else if (mode === 'level') {
+      spikeTrapsRef.current = [];
+    }
+    // Infinite mode already pushed traps during platform creation above.
 
     finishTriggeredRef.current = false;
 
@@ -763,10 +919,25 @@ export default function GameCanvas({
       auroraShardRollHandled: false,
     };
     breakableWallRef.current = null;
+    if (mode !== 'infinite') {
+      // Infinite traps were seeded above; level traps already assigned.
+    } else if (spikeTrapsRef.current.length === 0) {
+      // Ensure counter-only reset when no initial spike platforms landed on 8.
+    }
     emitBossHud(null);
     // Cache the 2D rendering context so we don't look it up every frame.
     ctxRef.current = canvas.getContext('2d');
-  }, [mode, customPlatforms, customBombs, ballStartPosition, getDifficultySettings, createBombOnPlatform, emitBossHud]);
+  }, [
+    mode,
+    customPlatforms,
+    customBombs,
+    customSpikes,
+    ballStartPosition,
+    getDifficultySettings,
+    createBombOnPlatform,
+    attachSpikeTrapToPlatform,
+    emitBossHud,
+  ]);
 
   // Centralized frame scheduling keeps requestAnimationFrame flow consistent.
   const scheduleNextFrame = useCallback(() => {
@@ -815,6 +986,13 @@ export default function GameCanvas({
         Matter.Body.setPosition(ball, { x: width / 2, y: height / 2 });
       }
       Matter.Body.setVelocity(ball, { x: 0, y: 0 });
+      // Clear dwell/raised state so the player isn't killed on revive (MIE-30).
+      spikeTrapsRef.current = spikeTrapsRef.current.map((trap) => ({
+        ...trap,
+        dwellStartMs: null,
+        spikesRaised: false,
+        riseProgress: 0,
+      }));
       reviveSignalRef.current = false;
     }
 
@@ -1074,6 +1252,18 @@ export default function GameCanvas({
       bomb.y -= dy;
     });
 
+    // Sync spike traps: attached traps follow platforms; free-floating scroll like bombs (MIE-30).
+    spikeTrapsRef.current = spikeTrapsRef.current.map((trap) => {
+      if (trap.platformBodyId != null) {
+        const platform = platformsRef.current.find((p) => p.id === trap.platformBodyId);
+        if (platform) {
+          return { ...trap, x: platform.position.x, y: platform.bounds.min.y };
+        }
+        return trap;
+      }
+      return { ...trap, x: trap.x - dx, y: trap.y - dy };
+    });
+
     // The 300m wall should scroll with the world until the player reaches the platform.
     if (breakableWallRef.current) {
       const wall = breakableWallRef.current;
@@ -1117,20 +1307,97 @@ export default function GameCanvas({
           const gap = randomInRange(difficulty.platformGapMin, difficulty.platformGapMax);
           const platformY = lowestPlatform.position.y + gap;
 
+          // Count ordinary platforms; every 8th gets a spike trap (MIE-30).
+          platformSpawnCountRef.current += 1;
+          const isSpikePlatform = platformSpawnCountRef.current % SPIKE_PLATFORM_INTERVAL === 0;
+
           const newPlatform = Matter.Bodies.rectangle(
             platformX,
             platformY,
             platformWidth,
             PLATFORM_HEIGHT,
-            { isStatic: true, label: 'platform', friction: 0.8 }
+            { isStatic: true, label: isSpikePlatform ? 'spikeTrap' : 'platform', friction: 0.8 }
           );
           platformsRef.current.push(newPlatform);
           Matter.World.add(engineRef.current.world, newPlatform);
 
-          const newBomb = createBombOnPlatform(newPlatform, `platform-${Date.now()}`);
-          if (newBomb) bombsRef.current.push(newBomb);
+          if (isSpikePlatform) {
+            attachSpikeTrapToPlatform(newPlatform, `spike-${platformSpawnCountRef.current}`);
+          } else {
+            const newBomb = createBombOnPlatform(newPlatform, `platform-${Date.now()}`);
+            if (newBomb) bombsRef.current.push(newBomb);
+          }
         }
       }
+
+      // Drop spike traps whose platforms scrolled off-screen.
+      const livePlatformIds = new Set(platformsRef.current.map((p) => p.id));
+      spikeTrapsRef.current = spikeTrapsRef.current.filter(
+        (trap) => trap.platformBodyId == null || livePlatformIds.has(trap.platformBodyId),
+      );
+    }
+
+    // Spike dwell timer + kill collision (MIE-30). Timer resets when the ball leaves.
+    // Rebuild trap objects (immutably) so React Compiler lint accepts ref updates.
+    {
+      const nowMs = Date.now();
+      let killedBySpike = false;
+      spikeTrapsRef.current = spikeTrapsRef.current.map((trap) => {
+        const ballBottom = ball.position.y + BALL_RADIUS;
+        const verticalNear = Math.abs(ballBottom - trap.y) < 14 && Math.abs(ball.velocity.y) < 4;
+        const horizontalOn =
+          ball.position.x + BALL_RADIUS > trap.x - trap.width / 2 &&
+          ball.position.x - BALL_RADIUS < trap.x + trap.width / 2;
+        const standingOnTrap = verticalNear && horizontalOn;
+
+        let dwellStartMs = trap.dwellStartMs;
+        let spikesRaised = trap.spikesRaised;
+        let riseProgress = trap.riseProgress;
+
+        if (standingOnTrap) {
+          if (dwellStartMs == null) dwellStartMs = nowMs;
+          if (!spikesRaised && nowMs - dwellStartMs >= SPIKE_DWELL_MS) {
+            spikesRaised = true;
+            riseProgress = 0;
+          }
+        } else if (!spikesRaised) {
+          dwellStartMs = null;
+        }
+
+        if (spikesRaised && riseProgress < 1) {
+          riseProgress = Math.min(1, riseProgress + elapsed / SPIKE_RISE_MS);
+        }
+
+        if (!killedBySpike && spikesRaised && riseProgress > 0.2) {
+          const count = SPIKE_TRIANGLE_COUNT;
+          const spikeW = trap.width / count;
+          const h = SPIKE_HEIGHT * riseProgress;
+          for (let i = 0; i < count; i++) {
+            const left = trap.x - trap.width / 2 + i * spikeW;
+            const tipX = left + spikeW / 2;
+            const tipY = trap.y - h;
+            if (
+              pointInTriangle(
+                ball.position.x,
+                ball.position.y,
+                left + 1,
+                trap.y,
+                tipX,
+                tipY,
+                left + spikeW - 1,
+                trap.y,
+              ) ||
+              Math.hypot(ball.position.x - tipX, ball.position.y - tipY) < BALL_RADIUS
+            ) {
+              killedBySpike = true;
+              break;
+            }
+          }
+        }
+
+        return { ...trap, dwellStartMs, spikesRaised, riseProgress };
+      });
+      if (killedBySpike) onGameOverRef.current();
     }
 
     // Bombs still cause instant game over as before.
@@ -1160,6 +1427,9 @@ export default function GameCanvas({
       ctx.clearRect(0, 0, width, height);
     } else if (auroraActiveRef.current) {
       drawAuroraSky(ctx, width, height, Date.now());
+    } else if (fossilActiveRef.current && mode === 'infinite') {
+      // Jungle look during admin Fossil Event (MIE-31) — infinite play only.
+      drawJungleSky(ctx, width, height, Date.now());
     } else if (crabRaveActiveRef.current) {
       // Dark party gradient while Crab Rave audio + canvas effects play.
       const grad = ctx.createLinearGradient(0, 0, width, height);
@@ -1187,6 +1457,8 @@ export default function GameCanvas({
 
       if (platform.label === 'challenge300' || platform.label.startsWith('bossArena')) {
         ctx.fillStyle = '#F1C40F';
+      } else if (platform.label === 'spikeTrap') {
+        ctx.fillStyle = '#5b7c99'; // Slightly muted platform under spike traps
       } else if (platform.label === 'finish') {
         ctx.fillStyle = '#00ff00';
       } else if (platform.label === 'wall') {
@@ -1242,6 +1514,27 @@ export default function GameCanvas({
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = 2;
       ctx.stroke();
+    });
+
+    // Spike warning lines (always visible) + raised grey triangles (MIE-30).
+    spikeTrapsRef.current.forEach((trap) => {
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(trap.x - trap.width / 2, trap.y);
+      ctx.lineTo(trap.x + trap.width / 2, trap.y);
+      ctx.stroke();
+      // Progress glow while dwelling
+      if (trap.dwellStartMs != null && !trap.spikesRaised) {
+        const progress = Math.min(1, (Date.now() - trap.dwellStartMs) / SPIKE_DWELL_MS);
+        ctx.strokeStyle = `rgba(239, 68, 68, ${0.35 + progress * 0.55})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(trap.x - trap.width / 2, trap.y);
+        ctx.lineTo(trap.x - trap.width / 2 + trap.width * progress, trap.y);
+        ctx.stroke();
+      }
+      drawSpikeTriangles(ctx, trap, trap.riseProgress);
     });
 
     // Render boss (Gigaball) when active and visible.
@@ -1457,6 +1750,7 @@ export default function GameCanvas({
     spawnThreeHundredChallenge,
     spawnBossArenaEncounter,
     spawnGigaballBoss,
+    attachSpikeTrapToPlatform,
   ]);
 
   const handleResize = useCallback(() => {
@@ -1503,6 +1797,7 @@ export default function GameCanvas({
       setCrabRaveActive(crabActive);
 
       auroraActiveRef.current = isEventTypeLive(evts, 'aurora', now);
+      fossilActiveRef.current = isEventTypeLive(evts, 'fossil', now);
     });
     return () => unsub();
   }, []);
@@ -1525,6 +1820,7 @@ export default function GameCanvas({
       }
 
       auroraActiveRef.current = isEventTypeLive(activeEventsRef.current, 'aurora', now);
+      fossilActiveRef.current = isEventTypeLive(activeEventsRef.current, 'fossil', now);
     }, 1000);
     return () => clearInterval(id);
   }, []);

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { BossHudState, GameState, Controls, PlayerIdentity, User, Platform, Bomb } from '../lib/types';
+import { BossHudState, GameState, Controls, PlayerIdentity, User, Bomb, Spike } from '../lib/types';
 import { awardAuroraShard, getUserData, startGameSession, submitScoreViaFunction, updateUserStats, useExtraBall as consumeExtraBall, GameSession, subscribeToAvatarItems, getLevelDocument, incrementLevelPlayCount, subscribeToRaceChallenge, updateRaceProgress } from '../lib/firestore';
-import { levelDocumentToPlatforms, levelDocumentToBombs, scrollDirectionMultiplier } from '../lib/levelUtils';
+import { levelDocumentToPlatforms, levelDocumentToBombs, levelDocumentToSpikes, scrollDirectionMultiplier } from '../lib/levelUtils';
 import type { LevelDocument } from '../lib/types';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import { getBallTypeById, getDefaultBallType } from '../lib/ballTypes';
@@ -18,8 +18,11 @@ import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
 import { usePlayerSettings } from '../components/PlayerSettingsProvider';
 
-// Stable empty platforms array prevents GameCanvas re-init loops in infinite mode.
+// Stable empty arrays prevent GameCanvas re-init loops when HUD state updates (~250ms).
 const EMPTY_CUSTOM_PLATFORMS: [] = [];
+const EMPTY_CUSTOM_BOMBS: Bomb[] = [];
+const EMPTY_CUSTOM_SPIKES: Spike[] = [];
+const DEFAULT_SCROLL_VECTOR = { x: 0, y: 1 };
 
 /**
  * Game Page Component
@@ -89,6 +92,7 @@ function Game() {
 
   // Game session for anti-cheat (from Cloud Function) - REQUIRED for score submission
   const gameSessionRef = useRef<GameSession | null>(null);
+  // Surface session failures in the HUD so players know score submit may be disabled.
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
@@ -473,9 +477,24 @@ function Game() {
   
   // Get the current ball type for rendering
   const ballType = getSelectedBallType();
-  const levelPlatforms: Platform[] = isLevelReady && levelData ? levelDocumentToPlatforms(levelData) : EMPTY_CUSTOM_PLATFORMS;
-  const levelBombs: Bomb[] = isLevelReady && levelData ? levelDocumentToBombs(levelData) : [];
-  const levelScrollVector = isLevelReady && levelData ? scrollDirectionMultiplier(levelData.screenScroll) : { x: 0, y: 1 };
+  // Memoize level geometry so HUD ticks don't recreate arrays and re-init the world (MIE-26/28/29).
+  const levelPlatforms = useMemo(
+    () => (isLevelReady && levelData ? levelDocumentToPlatforms(levelData) : EMPTY_CUSTOM_PLATFORMS),
+    [isLevelReady, levelData],
+  );
+  const levelBombs = useMemo(
+    () => (isLevelReady && levelData ? levelDocumentToBombs(levelData) : EMPTY_CUSTOM_BOMBS),
+    [isLevelReady, levelData],
+  );
+  // Memoize Studio spikes so HUD ticks don't re-init the world (MIE-30).
+  const levelSpikes = useMemo(
+    () => (isLevelReady && levelData ? levelDocumentToSpikes(levelData) : EMPTY_CUSTOM_SPIKES),
+    [isLevelReady, levelData],
+  );
+  const levelScrollVector = useMemo(
+    () => (isLevelReady && levelData ? scrollDirectionMultiplier(levelData.screenScroll) : DEFAULT_SCROLL_VECTOR),
+    [isLevelReady, levelData],
+  );
 
   const equippedLayers = userSnapshot
     ? getEquippedAvatarItems(userSnapshot, avatarCatalog)
@@ -504,6 +523,16 @@ function Game() {
             <div className="text-white text-base sm:text-xl font-semibold mb-4 px-4">Initializing secure game session…</div>
             <div className="text-gray-400 text-sm">Please wait</div>
           </div>
+        </div>
+      )}
+
+      {!sessionLoading && sessionError && (
+        <div
+          className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-md w-[90%] bg-amber-500/95 text-black text-sm font-medium px-3 py-2 rounded-xl text-center"
+          role="status"
+          aria-live="polite"
+        >
+          {sessionError}
         </div>
       )}
 
@@ -539,7 +568,8 @@ function Game() {
         reviveSignalRef={reviveSignalRef}
         mode={isLevelReady ? 'level' : 'infinite'}
         customPlatforms={isLevelReady ? levelPlatforms : EMPTY_CUSTOM_PLATFORMS}
-        customBombs={levelBombs}
+        customBombs={isLevelReady ? levelBombs : EMPTY_CUSTOM_BOMBS}
+        customSpikes={isLevelReady ? levelSpikes : EMPTY_CUSTOM_SPIKES}
         levelSkyColor={levelData?.skyColor}
         levelScrollVector={levelScrollVector}
         fixedLevelWorld={isLevelReady}

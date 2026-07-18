@@ -400,6 +400,7 @@ const LEVEL_WORLD_W = 900;
 const LEVEL_WORLD_H = 520;
 const MAX_LEVEL_PLATFORMS = 100;
 const MAX_LEVEL_BOMBS = 50;
+const MAX_LEVEL_SPIKES = 50; // MIE-30 Studio spike traps
 
 type LevelScrollDir = 'up' | 'down' | 'left' | 'right';
 
@@ -470,6 +471,21 @@ function sanitizeLevelPayload(raw: Record<string, unknown>, authorUsername: stri
       })
     : [];
 
+  // Persist Studio spike traps (MIE-30) — older clients may omit spikes.
+  const spikes = Array.isArray(raw.spikes)
+    ? raw.spikes.slice(0, MAX_LEVEL_SPIKES).map((s, idx) => {
+        const row = s as Record<string, unknown>;
+        return {
+          id: typeof row.id === 'string' ? row.id.slice(0, 64) : `spike-${idx}`,
+          x: typeof row.x === 'number' ? row.x : 0,
+          y: typeof row.y === 'number' ? row.y : 0,
+          width: typeof row.width === 'number' ? Math.max(40, Math.min(200, row.width)) : 80,
+          rotation: typeof row.rotation === 'number' ? row.rotation : 0,
+          scale: typeof row.scale === 'number' ? Math.max(0.5, Math.min(3, row.scale)) : 1,
+        };
+      })
+    : [];
+
   if (visibility === 'public') {
     if (!ballSpawner) {
       throw new functions.https.HttpsError('failed-precondition', 'Public levels require a Ball Spawner.');
@@ -497,6 +513,7 @@ function sanitizeLevelPayload(raw: Record<string, unknown>, authorUsername: stri
     ballSpawner,
     platforms,
     bombs,
+    spikes,
   };
 }
 
@@ -523,6 +540,7 @@ export const createLevel = functions.https.onCall(async (data) => {
     ballSpawner: { x: 200, y: 400 },
     platforms: [],
     bombs: [],
+    spikes: [], // MIE-30
   };
   await ref.set(level);
   return { id: ref.id, ...level };

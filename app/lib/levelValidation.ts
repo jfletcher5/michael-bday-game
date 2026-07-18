@@ -3,7 +3,7 @@
  */
 
 import type { LevelDocument } from './types';
-import { LEVEL_WORLD_HEIGHT, LEVEL_WORLD_WIDTH } from './levelWorld';
+import { LEVEL_WORLD_HEIGHT, LEVEL_WORLD_WIDTH, MAX_LEVEL_SPIKES } from './levelWorld';
 
 export interface LevelValidationResult {
   valid: boolean;
@@ -41,9 +41,21 @@ export function validateLevelDocument(level: LevelDocument, requirePublishable =
     errors.push('Too many bombs (max 50).');
   }
 
+  const spikeCount = level.spikes?.length ?? 0;
+  if (spikeCount > MAX_LEVEL_SPIKES) {
+    errors.push(`Too many spikes (max ${MAX_LEVEL_SPIKES}).`);
+  }
+
   for (const p of level.platforms) {
     if (p.x < -200 || p.y < -200 || p.x > LEVEL_WORLD_WIDTH + 200 || p.y > LEVEL_WORLD_HEIGHT + 400) {
       errors.push('One or more platforms are far outside the level bounds.');
+      break;
+    }
+  }
+
+  for (const s of level.spikes ?? []) {
+    if (s.x < -200 || s.y < -200 || s.x > LEVEL_WORLD_WIDTH + 200 || s.y > LEVEL_WORLD_HEIGHT + 400) {
+      errors.push('One or more spikes are far outside the level bounds.');
       break;
     }
   }
