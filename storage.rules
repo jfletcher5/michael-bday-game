@@ -5,6 +5,12 @@ rules_version = '2';
 // but these rules lock down the bucket if/when admin seed scripts upload game assets.
 service firebase.storage {
   match /b/{bucket}/o {
+    // Public read-only UGC textures uploaded by Cloud Functions (MIE-18).
+    match /public/avatar-ugc/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Public game assets (ball skins, stickers, etc.) — clients may read only.
     // Upload via Firebase Console or Admin SDK scripts, not from the browser.
     match /public/{allPaths=**} {

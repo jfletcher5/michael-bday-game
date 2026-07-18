@@ -7,6 +7,7 @@ import { AVATAR_PART_TYPES } from '../lib/avatarItems';
 /** Layer positions on the dummy for each body slot (percent-based). */
 const SLOT_STYLE: Record<AvatarPartType, React.CSSProperties> = {
   hair: { top: '2%', left: '50%', width: '38%', height: '18%', transform: 'translateX(-50%)' },
+  face: { top: '10%', left: '50%', width: '30%', height: '16%', transform: 'translateX(-50%)' },
   shirt: { top: '24%', left: '50%', width: '42%', height: '28%', transform: 'translateX(-50%)' },
   accessory: { top: '20%', left: '68%', width: '16%', height: '16%' },
   arm: { top: '28%', left: '8%', width: '18%', height: '22%' },

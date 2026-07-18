@@ -11,22 +11,26 @@ import {
   equipAvatarItem,
   unequipAvatarSlot,
   updateUserAvatar,
+  updateUserSkinColor,
   getVerifiedUsernames,
 } from '../lib/firestore';
 import {
   mergeAvatarCatalog,
   AVATAR_PART_TYPES,
   AVATAR_PART_LABELS,
+  DEFAULT_SKIN_COLOR,
   getEquippedAvatarItems,
   isAvatarItemOwned,
   canPurchaseAvatarItem,
   isAvatarItemOffsaleForPlayer,
   EMOTE_COOLDOWN_MS,
+  EMOTE_DURATION_MS,
 } from '../lib/avatarItems';
 import { formatGems } from '../lib/gamepasses';
 import { AVATAR_OPTIONS, getAvatarUrl } from '../lib/avatars';
 import type { AvatarItem, AvatarPartType, User } from '../lib/types';
-import AvatarMannequin from '../components/AvatarMannequin';
+import Avatar3DViewer from '../components/Avatar3DViewer';
+import AvatarUgcPanel from '../components/AvatarUgcPanel';
 import EmoteOverlay from '../components/EmoteOverlay';
 import VerifiedBadge from '../components/VerifiedBadge';
 import MenuBackground from '../components/MenuBackground';
@@ -43,6 +47,8 @@ export default function AvatarsClient() {
   const [success, setSuccess] = useState<string | null>(null);
   const [playingEmote, setPlayingEmote] = useState<AvatarItem | null>(null);
   const [emoteOnCooldown, setEmoteOnCooldown] = useState(false);
+  const [rigEmoteActive, setRigEmoteActive] = useState(false);
+  const [draftTexture, setDraftTexture] = useState<{ partType: AvatarPartType; textureUrl: string } | null>(null);
   const [verifiedCreators, setVerifiedCreators] = useState<Set<string>>(new Set());
 
   const catalog = useMemo(() => mergeAvatarCatalog(firestoreItems), [firestoreItems]);
@@ -87,8 +93,25 @@ export default function AvatarsClient() {
   const handlePlayEmote = () => {
     if (!equippedEmote || playingEmote || emoteOnCooldown) return;
     setPlayingEmote(equippedEmote);
+    setRigEmoteActive(true);
     setEmoteOnCooldown(true);
+    window.setTimeout(() => setRigEmoteActive(false), EMOTE_DURATION_MS);
     window.setTimeout(() => setEmoteOnCooldown(false), EMOTE_COOLDOWN_MS);
+  };
+
+  const handleSkinColorChange = async (color: string) => {
+    if (!user) return;
+    setActionKey('skin');
+    setError(null);
+    try {
+      const updated = await updateUserSkinColor(user.username, color);
+      setUser(updated);
+      setCurrentUser(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save skin color');
+    } finally {
+      setActionKey(null);
+    }
   };
 
   const handlePurchase = async (item: AvatarItem) => {
@@ -172,7 +195,18 @@ export default function AvatarsClient() {
           right={<StatPill icon="💎">{formatGems(user.totalGems ?? 0)} gems</StatPill>}
         />
 
-        <PageHero title="👤 Avatar Shop" subtitle="Dress up your character" />
+        <PageHero title="👤 Avatar Shop" subtitle="Dress up your 3D character" />
+
+        <AvatarUgcPanel
+          user={user}
+          onPublished={(updated) => {
+            setUser(updated);
+            setCurrentUser(updated);
+          }}
+          onError={setError}
+          onSuccess={setSuccess}
+          onDraftPreview={setDraftTexture}
+        />
 
         {(error || success) && (
           <div className="mb-4 max-w-md mx-auto space-y-2">
@@ -181,11 +215,28 @@ export default function AvatarsClient() {
           </div>
         )}
 
-        {/* Mannequin + emote */}
+        {/* 3D avatar preview + emote + free skin color (MIE-18) */}
         <div className="bg-white rounded-3xl shadow-glow p-4 mb-4 flex flex-col sm:flex-row items-center gap-4">
-          <AvatarMannequin layers={equippedLayers} emoteActive={!!playingEmote} />
-          <div className="flex-1 text-center sm:text-left">
+          <Avatar3DViewer
+            layers={equippedLayers}
+            skinColor={user.skinColor ?? DEFAULT_SKIN_COLOR}
+            emoteActive={rigEmoteActive}
+            draftTexture={draftTexture}
+            enableRotation
+          />
+          <div className="flex-1 text-center sm:text-left w-full">
             <p className="text-sm text-gray-600 mb-2">Your equipped look (does not change your ball in-game)</p>
+            <label className="flex items-center gap-2 text-sm text-gray-700 mb-3 justify-center sm:justify-start">
+              <span>Skin color (free):</span>
+              <input
+                type="color"
+                value={user.skinColor ?? DEFAULT_SKIN_COLOR}
+                onChange={(e) => handleSkinColorChange(e.target.value)}
+                disabled={actionKey === 'skin'}
+                className="w-10 h-10 rounded cursor-pointer border border-gray-200"
+                aria-label="Pick skin color"
+              />
+            </label>
             {equippedEmote && (
               <button
                 onClick={handlePlayEmote}
@@ -252,6 +303,9 @@ export default function AvatarsClient() {
                 <p className="text-[10px] text-gray-500 line-clamp-2 mb-1">{item.description}</p>
                 <p className="text-[10px] text-gray-400 mb-2 flex items-center gap-1">
                   by {item.creatorUsername}
+                  {item.source === 'ugc' && (
+                    <span className="bg-indigo-100 text-indigo-700 px-1 rounded text-[8px] font-bold">UGC</span>
+                  )}
                   {verifiedCreators.has(item.creatorUsername) && <VerifiedBadge />}
                 </p>
                 {offsale && <p className="text-xs text-gray-400 font-medium mb-1">Offsale</p>}

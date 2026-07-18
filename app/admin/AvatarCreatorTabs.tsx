@@ -178,9 +178,13 @@ export function AvatarListTab() {
             <p className="font-medium text-sm text-gray-800">{item.name}</p>
             <p className="text-xs text-gray-500">
               {AVATAR_PART_LABELS[item.partType]} · {item.gemPrice} gems · by {item.creatorUsername}
+              {item.source === 'ugc' && ' · UGC'}
               {!item.onSale && ' · Offsale'}
               {item.stock !== null && ` · Stock ${item.stock}`}
             </p>
+            {item.source === 'ugc' && item.ugcPrompt && (
+              <p className="text-[10px] text-gray-400 mt-1 line-clamp-2">Prompt: {item.ugcPrompt}</p>
+            )}
           </div>
           <div className="relative">
             <button
