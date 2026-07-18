@@ -680,3 +680,217 @@ export const cleanupExpiredSessions = functions.pubsub
       return null;
     }
   });
+
+// ============================================
+// 3D AVATAR — GEMINI UGC TEXTURE GENERATION (MIE-18)
+// ============================================
+
+const AVATAR_ITEMS_COLLECTION = 'avatarItems';
+const AVATAR_DRAFTS_COLLECTION = 'avatarDrafts';
+
+const UGC_TEXTURE_PART_TYPES = new Set([
+  'shirt', 'hair', 'pants', 'arm', 'leg', 'hand', 'foot', 'sock', 'accessory',
+]);
+
+function isProfaneText(text: string): boolean {
+  const lower = text.toLowerCase().replace(/\s+/g, '');
+  return BLOCKED_NAME_SUBSTRINGS.some((word) => lower.includes(word));
+}
+
+/** Build a deterministic fallback SVG texture when Gemini is unavailable. */
+function buildFallbackTextureSvg(partType: string, prompt: string): string {
+  let hash = 0;
+  for (let i = 0; i < prompt.length; i++) {
+    hash = (hash * 31 + prompt.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  const safePrompt = prompt.slice(0, 40).replace(/[<>&"']/g, '');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="hsl(${hue},75%,55%)"/>
+        <stop offset="100%" stop-color="hsl(${(hue + 60) % 360},70%,40%)"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" fill="url(#g)"/>
+    <text x="128" y="120" text-anchor="middle" font-size="14" fill="white" font-family="sans-serif">${partType}</text>
+    <text x="128" y="145" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-family="sans-serif">${safePrompt}</text>
+  </svg>`;
+}
+
+/** Upload texture bytes to public Storage and return the HTTPS URL. */
+async function uploadAvatarTexture(
+  buffer: Buffer,
+  contentType: string,
+  filename: string,
+): Promise<string> {
+  const bucket = admin.storage().bucket();
+  const path = `public/avatar-ugc/${filename}`;
+  const file = bucket.file(path);
+  await file.save(buffer, {
+    contentType,
+    metadata: { cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+  return `https://storage.googleapis.com/${bucket.name}/${path}`;
+}
+
+/** Try Gemini image generation; falls back to procedural SVG texture. */
+async function generateTextureImage(partType: string, prompt: string): Promise<{ buffer: Buffer; contentType: string }> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const fullPrompt =
+    `Generate a flat 2D game texture tile for a 3D avatar ${partType}. ` +
+    `Style: colorful, kid-friendly platformer game. No text. Description: ${prompt}`;
+
+  if (apiKey) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: fullPrompt }] }],
+            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          }),
+        },
+      );
+
+      if (response.ok) {
+        const json = (await response.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }>;
+        };
+        const parts = json.candidates?.[0]?.content?.parts ?? [];
+        for (const part of parts) {
+          const inline = part.inlineData;
+          if (inline?.data) {
+            return {
+              buffer: Buffer.from(inline.data, 'base64'),
+              contentType: inline.mimeType || 'image/png',
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Gemini texture generation failed, using fallback:', err);
+    }
+  }
+
+  const svg = buildFallbackTextureSvg(partType, prompt);
+  return { buffer: Buffer.from(svg, 'utf-8'), contentType: 'image/svg+xml' };
+}
+
+/** Generate a preview texture via Gemini (server-side) for player UGC (MIE-18). */
+export const generateAvatarTexture = functions.https.onCall(async (data) => {
+  const { username, password, partType, prompt } = data ?? {};
+  if (!username || !password || !partType || !prompt) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username, password, partType, or prompt');
+  }
+  if (!UGC_TEXTURE_PART_TYPES.has(String(partType))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid part type for UGC textures');
+  }
+  if (String(prompt).trim().length < 3 || String(prompt).length > 300) {
+    throw new functions.https.HttpsError('invalid-argument', 'Prompt must be 3–300 characters');
+  }
+  if (isProfaneText(String(prompt))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Prompt contains blocked words');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const { buffer, contentType } = await generateTextureImage(String(partType), String(prompt).trim());
+  const draftId = `draft-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const ext = contentType.includes('svg') ? 'svg' : 'png';
+  const textureUrl = await uploadAvatarTexture(buffer, contentType, `${draftId}.${ext}`);
+
+  const now = Date.now();
+  await db.collection(AVATAR_DRAFTS_COLLECTION).doc(draftId).set({
+    id: draftId,
+    username: playerUsername,
+    partType,
+    prompt: String(prompt).trim(),
+    textureUrl,
+    previewImageUrl: textureUrl,
+    createdAtMs: now,
+  });
+
+  return { draftId, textureUrl, previewImageUrl: textureUrl };
+});
+
+/** Publish a Gemini draft instantly to the Avatar shop (MIE-18 point #10). */
+export const publishAvatarUgcItem = functions.https.onCall(async (data) => {
+  const {
+    username,
+    password,
+    draftId,
+    name,
+    description,
+    partType,
+    textureUrl,
+    previewImageUrl,
+    ugcPrompt,
+  } = data ?? {};
+
+  if (!username || !password || !draftId || !name || !partType || !textureUrl) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required publish fields');
+  }
+  if (isProfaneText(String(name)) || (ugcPrompt && isProfaneText(String(ugcPrompt)))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Name or prompt contains blocked words');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const draftSnap = await db.collection(AVATAR_DRAFTS_COLLECTION).doc(String(draftId)).get();
+  if (!draftSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Draft not found — generate a preview first');
+  }
+  const draft = draftSnap.data() as Record<string, unknown>;
+  if (draft.username !== playerUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Draft belongs to another player');
+  }
+
+  const now = Date.now();
+  const itemId = `ugc-${now}-${crypto.randomBytes(4).toString('hex')}`;
+  const item = {
+    id: itemId,
+    name: String(name).trim().slice(0, 40),
+    description: String(description || '').trim().slice(0, 200),
+    creatorUsername: playerUsername,
+    partType,
+    gemPrice: 0,
+    onSale: true,
+    stock: null,
+    previewImageUrl: previewImageUrl || textureUrl,
+    textureUrl,
+    source: 'ugc',
+    ugcPrompt: String(ugcPrompt || draft.prompt || '').slice(0, 300),
+    createdAtMs: now,
+    updatedAtMs: now,
+  };
+
+  const userRef = db.collection(USERS_COLLECTION).doc(playerUsername);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  const userData = userSnap.data() as Record<string, unknown>;
+  const owned = Array.isArray(userData.ownedAvatarItems) ? [...userData.ownedAvatarItems] : [];
+  if (!owned.includes(itemId)) owned.push(itemId);
+
+  const equipped = (userData.equippedAvatar as Record<string, string | null> | undefined) ?? {};
+  equipped[String(partType)] = itemId;
+
+  await db.collection(AVATAR_ITEMS_COLLECTION).doc(itemId).set(item);
+  await userRef.update({
+    ownedAvatarItems: owned,
+    equippedAvatar: equipped,
+  });
+  await draftSnap.ref.delete();
+
+  const updatedUser = {
+    ...userData,
+    username: playerUsername,
+    ownedAvatarItems: owned,
+    equippedAvatar: equipped,
+  };
+
+  return { itemId, user: updatedUser };
+});

@@ -14,6 +14,7 @@ export const AVATAR_PART_TYPES: AvatarPartType[] = [
   'hand',
   'foot',
   'sock',
+  'face',
   'emote',
   'accessory',
 ];
@@ -27,9 +28,26 @@ export const AVATAR_PART_LABELS: Record<AvatarPartType, string> = {
   hand: 'Hands',
   foot: 'Feet',
   sock: 'Socks',
+  face: 'Face',
   emote: 'Emotes',
   accessory: 'Accessory',
 };
+
+/** Default free skin tint — white per Michael (MIE-18). */
+export const DEFAULT_SKIN_COLOR = '#FFFFFF';
+
+/** UGC body slots players can describe to Gemini (no emote/face via texture gen). */
+export const UGC_TEXTURE_PART_TYPES: AvatarPartType[] = [
+  'shirt',
+  'hair',
+  'pants',
+  'arm',
+  'leg',
+  'hand',
+  'foot',
+  'sock',
+  'accessory',
+];
 
 /** How long an emote animation plays (MIE-17). */
 export const EMOTE_DURATION_MS = 3000;
@@ -47,6 +65,7 @@ export function createEmptyEquippedAvatar(): EquippedAvatar {
     hand: null,
     foot: null,
     sock: null,
+    face: null,
     emote: null,
     accessory: null,
   };
@@ -113,6 +132,23 @@ export const BUILTIN_AVATAR_ITEMS: AvatarItem[] = [
     onSale: true,
     stock: null,
     previewImageUrl: '/starter-emote-wave.svg',
+    emoteAnimation: 'wave',
+    source: 'system',
+    createdAtMs: 0,
+    updatedAtMs: 0,
+  },
+  {
+    id: 'starter-face-smile',
+    name: 'Smiling Face',
+    description: 'Default cheerful expression.',
+    creatorUsername: 'SYSTEM',
+    partType: 'face',
+    gemPrice: 0,
+    onSale: true,
+    stock: null,
+    previewImageUrl: '/starter-face-smile.svg',
+    faceOverlayUrl: '/starter-face-smile.svg',
+    source: 'system',
     createdAtMs: 0,
     updatedAtMs: 0,
   },
@@ -131,6 +167,7 @@ export function createStarterEquippedAvatar(): EquippedAvatar {
     hand: null,
     foot: null,
     sock: null,
+    face: 'starter-face-smile',
     emote: 'starter-emote-wave',
     accessory: null,
   };
@@ -185,6 +222,24 @@ export function getEquippedAvatarItems(
   return result;
 }
 
+/** Resolve the 2D texture URL for a body-part mesh (MIE-18). */
+export function getAvatarPartTextureUrl(item: AvatarItem | undefined): string | null {
+  if (!item) return null;
+  return item.textureUrl ?? item.shirtTextureUrl ?? item.previewImageUrl ?? null;
+}
+
+/** Face slot uses a 2D overlay composited on the 3D head (MIE-18). */
+export function getAvatarFaceOverlayUrl(item: AvatarItem | undefined): string | null {
+  if (!item || item.partType !== 'face') return null;
+  return item.faceOverlayUrl ?? item.textureUrl ?? item.previewImageUrl ?? null;
+}
+
+/** Whether this emote should drive the 3D rig animation (MIE-18). */
+export function getEmoteAnimationId(item: AvatarItem | undefined): string | null {
+  if (!item || item.partType !== 'emote') return null;
+  return item.emoteAnimation ?? (item.id.includes('wave') ? 'wave' : null);
+}
+
 /** Ensure legacy users have avatar economy fields (call after login/load). */
 export function normalizeUserAvatarFields(user: User): User {
   const owned = user.ownedAvatarItems ?? [...STARTER_OWNED_ITEM_IDS];
@@ -194,7 +249,13 @@ export function normalizeUserAvatarFields(user: User): User {
   for (const id of STARTER_OWNED_ITEM_IDS) ownedSet.add(id);
   return {
     ...user,
+    skinColor: user.skinColor ?? DEFAULT_SKIN_COLOR,
     ownedAvatarItems: Array.from(ownedSet),
-    equippedAvatar: equipped,
+    equippedAvatar: {
+      ...createEmptyEquippedAvatar(),
+      ...equipped,
+      // Backfill face slot for users migrated before MIE-18
+      face: equipped.face ?? 'starter-face-smile',
+    },
   };
 }
