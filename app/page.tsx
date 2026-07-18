@@ -11,8 +11,8 @@ import {
 } from './lib/firestore';
 import { User, AvatarItem } from './lib/types';
 import { getAvatarUrl } from './lib/avatars';
-import { mergeAvatarCatalog, getEquippedAvatarItems } from './lib/avatarItems';
-import AvatarMannequin from './components/AvatarMannequin';
+import { mergeAvatarCatalog, getEquippedAvatarItems, DEFAULT_SKIN_COLOR } from './lib/avatarItems';
+import Avatar3DViewer from './components/Avatar3DViewer';
 import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining } from './lib/seasons';
 import { formatPrice } from './lib/ballTypes';
 import TopNav from './components/TopNav';
@@ -134,7 +134,12 @@ export default function Home() {
               className="group rounded-2xl p-3 bg-purple-50 ring-2 ring-purple-200 hover:ring-purple-400 hover:-translate-y-1 hover:shadow-glow-sm transition-all duration-200"
               aria-label="Open avatar shop"
             >
-              <AvatarMannequin layers={equippedLayers} className="pointer-events-none" />
+              <Avatar3DViewer
+                layers={equippedLayers}
+                skinColor={currentUser?.skinColor ?? DEFAULT_SKIN_COLOR}
+                enableRotation
+                className="pointer-events-auto"
+              />
               <p className="text-xs text-purple-700 font-medium mt-2 group-hover:underline">
                 Customize Avatar →
               </p>

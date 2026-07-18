@@ -65,6 +65,7 @@ export interface User {
   auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
   ownedAvatarItems?: string[]; // Avatar item catalog ids the player owns (MIE-12)
   equippedAvatar?: EquippedAvatar; // One equipped item per body slot (MIE-12)
+  skinColor?: string; // Hex body tint for 3D avatar — free, default #FFFFFF (MIE-18)
   pendingGifts?: PendingGift[]; // Undismissed gift notifications for recipient popup (MIE-21)
 }
 
@@ -104,7 +105,11 @@ export type AvatarPartType =
   | 'foot'
   | 'sock'
   | 'emote'
-  | 'accessory';
+  | 'accessory'
+  | 'face'; // 2D expression overlay on 3D head (MIE-18)
+
+/** Where an avatar catalog row originated — UGC items are Gemini-generated textures (MIE-18). */
+export type AvatarItemSource = 'system' | 'creator' | 'ugc';
 
 /** Equipped avatar item ids keyed by body slot. */
 export type EquippedAvatar = Record<AvatarPartType, string | null>;
@@ -122,10 +127,27 @@ export interface AvatarItem {
   onSale: boolean;
   stock: number | null; // null = unlimited; when 0 and onSale, shows sold out
   previewImageUrl?: string; // Thumbnail on shop card + mannequin layer
-  modelUrl?: string; // Sketchfab or model URL
-  shirtTextureUrl?: string; // Optional shirt photo upload URL
+  modelUrl?: string; // Legacy Sketchfab URL — deprecated for new UGC (MIE-18)
+  modelGlbUrl?: string; // Optional hosted base mesh for body parts (MIE-18)
+  shirtTextureUrl?: string; // Legacy texture alias — prefer textureUrl
+  textureUrl?: string; // 2D texture map applied to 3D body-part mesh (MIE-18)
+  faceOverlayUrl?: string; // 2D expression overlay for face slot items (MIE-18)
+  emoteAnimation?: string; // Rig clip id, e.g. 'wave' (MIE-18)
+  source?: AvatarItemSource; // system | creator | ugc
+  ugcPrompt?: string; // Player's Gemini prompt — moderation log (MIE-18)
   createdAtMs: number;
   updatedAtMs: number;
+}
+
+/** Draft while a player iterates on Gemini-generated textures before publishing (MIE-18). */
+export interface AvatarDraft {
+  id: string;
+  username: string;
+  partType: AvatarPartType;
+  prompt: string;
+  textureUrl: string;
+  previewImageUrl: string;
+  createdAtMs: number;
 }
 
 /**

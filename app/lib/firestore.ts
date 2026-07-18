@@ -389,6 +389,7 @@ export async function createUser(
       seasonData: null,
       ownedAvatarItems: [...STARTER_OWNED_ITEM_IDS],
       equippedAvatar: createStarterEquippedAvatar(),
+      skinColor: '#FFFFFF',
     };
 
     await setDoc(userRef(username), newUser);
@@ -1535,6 +1536,7 @@ export async function ensureUserAvatarMigration(username: string): Promise<User>
     await updateDoc(userRef, {
       ownedAvatarItems: normalized.ownedAvatarItems,
       equippedAvatar: normalized.equippedAvatar,
+      skinColor: normalized.skinColor,
     });
   }
 
@@ -1587,7 +1589,13 @@ export async function updateAvatarItem(
       | 'stock'
       | 'previewImageUrl'
       | 'modelUrl'
+      | 'modelGlbUrl'
       | 'shirtTextureUrl'
+      | 'textureUrl'
+      | 'faceOverlayUrl'
+      | 'emoteAnimation'
+      | 'source'
+      | 'ugcPrompt'
     >
   >
 ): Promise<void> {
@@ -1690,6 +1698,74 @@ export async function unequipAvatarSlot(
 
   await updateDoc(userRef, { equippedAvatar: equipped });
   return { ...userData, equippedAvatar: equipped };
+}
+
+// ============================================
+// 3D AVATAR — SKIN COLOR + GEMINI UGC (MIE-18)
+// ============================================
+
+/** Credentials bundle for secure avatar Cloud Functions (custom auth). */
+function avatarAuth(user: User): { username: string; password: string } {
+  return { username: user.username, password: user.password };
+}
+
+/** Persist free skin tint on the user doc (MIE-18 points #9, #14). */
+export async function updateUserSkinColor(username: string, skinColor: string): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username);
+  const userDoc = await getDoc(userRef);
+  if (!userDoc.exists()) throw new Error('User not found');
+
+  const normalized = skinColor.trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    throw new Error('Invalid color — use a hex value like #FFAA00');
+  }
+
+  await updateDoc(userRef, { skinColor: normalized });
+  const userData = normalizeUserAvatarFields(userDoc.data() as User);
+  return { ...userData, skinColor: normalized };
+}
+
+export interface AvatarTextureDraftResult {
+  draftId: string;
+  textureUrl: string;
+  previewImageUrl: string;
+}
+
+/** Call Gemini (server-side) to generate a 2D texture draft for UGC preview (MIE-18). */
+export async function generateAvatarTextureDraft(
+  user: User,
+  partType: AvatarPartType,
+  prompt: string,
+): Promise<AvatarTextureDraftResult> {
+  const fn = httpsCallable<
+    { username: string; password: string; partType: AvatarPartType; prompt: string },
+    AvatarTextureDraftResult
+  >(functions, 'generateAvatarTexture');
+  const result = await fn({ ...avatarAuth(user), partType, prompt });
+  return result.data;
+}
+
+export interface PublishAvatarUgcInput {
+  draftId: string;
+  name: string;
+  description: string;
+  partType: AvatarPartType;
+  textureUrl: string;
+  previewImageUrl: string;
+  ugcPrompt: string;
+}
+
+/** Publish a liked Gemini draft straight to avatarItems for all players (MIE-18 point #10). */
+export async function publishAvatarUgcItem(
+  user: User,
+  input: PublishAvatarUgcInput,
+): Promise<User> {
+  const fn = httpsCallable<
+    PublishAvatarUgcInput & { username: string; password: string },
+    { itemId: string; user: User }
+  >(functions, 'publishAvatarUgcItem');
+  const result = await fn({ ...avatarAuth(user), ...input });
+  return normalizeUserAvatarFields(result.data.user);
 }
 
 // ============================================
