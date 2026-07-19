@@ -43,7 +43,7 @@ import {
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
 import { addFossilToInventory } from './fossils';
 import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
-import { getBallTypeById } from './ballTypes';
+import { getBallTypeById, getBallGiftGemPrice, isBallGiftable } from './ballTypes';
 import {
   createStarterEquippedAvatar,
   normalizeUserAvatarFields,
@@ -1895,6 +1895,18 @@ export async function giftShopItem(
       throw new Error('Not enough gems');
     }
 
+    // MIE-35: validate canonical gift gem cost for balls (blocks client cost spoofing).
+    if (request.itemType === 'ball') {
+      const ball = getBallTypeById(request.itemId);
+      if (!isBallGiftable(ball)) {
+        throw new Error('This ball cannot be gifted');
+      }
+      const canonicalCost = getBallGiftGemPrice(ball);
+      if (canonicalCost === null || request.gemCost !== canonicalCost) {
+        throw new Error('Invalid gift cost');
+      }
+    }
+
     // Block when recipient already owns the item or gamepass.
     if (request.itemType === 'ball') {
       if (recipientData.ownedBalls.includes(request.itemId)) {
@@ -1950,7 +1962,9 @@ export async function giftShopItem(
       toUsername: recipientKey,
       itemType: request.itemType,
       itemId: request.itemId,
-      gemCost: request.gemCost,
+      gemCost: request.itemType === 'ball'
+        ? (getBallGiftGemPrice(getBallTypeById(request.itemId)) ?? request.gemCost)
+        : request.gemCost,
       createdAtMs: Date.now(),
     };
     transaction.set(auditRef, auditRow);

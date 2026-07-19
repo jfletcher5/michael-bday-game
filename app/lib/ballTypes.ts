@@ -232,10 +232,27 @@ export function isBallOwned(ballId: string, ownedBalls: string[]): boolean {
   return ballType.isDefault || ownedBalls.includes(ballId);
 }
 
-/** True when a ball can be gifted with gems (MIE-21) — gem-priced, not Aurora/event-only. */
+/** Poop Ball keeps a fixed gift gem price (not half-coin) per MIE-35. */
+const POOP_BALL_ID = 'poop';
+const POOP_GIFT_GEM_PRICE = 200_000;
+
+/** Balls that can never be gifted — free default, event-only, or gamepass-granted. */
+const NON_GIFTABLE_BALL_IDS = new Set(['default', AURORA_BALL_ID, VIP_BALL_ID]);
+
+/**
+ * Canonical gem cost to gift a ball (MIE-35).
+ * Gems are for gifting only — half the coin price for shop balls, fixed 200k for Poop.
+ */
+export function getBallGiftGemPrice(ball: BallType): number | null {
+  if (NON_GIFTABLE_BALL_IDS.has(ball.id)) return null;
+  if (ball.id === POOP_BALL_ID) return POOP_GIFT_GEM_PRICE;
+  if (ball.price <= 0) return null;
+  return Math.floor(ball.price / 2);
+}
+
+/** True when a ball can be gifted with gems (MIE-35). */
 export function isBallGiftable(ball: BallType): boolean {
-  if (ball.id === AURORA_BALL_ID || ball.id === VIP_BALL_ID) return false;
-  return typeof ball.gemPrice === 'number' && ball.gemPrice > 0;
+  return getBallGiftGemPrice(ball) !== null;
 }
 
 /**
