@@ -1,24 +1,27 @@
 'use client';
 
 /**
- * Fossil Exploration canvas (MIE-31).
+ * Fossil Exploration canvas (MIE-31, MIE-34).
  * One long horizontal platform, no auto-scroll, camera follows the ball.
- * Collect fossils by contact; crafting is deferred to a later ticket.
+ * Mine plants/rocks/trees by click/tap for a 20% fossil drop chance.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
 import Matter from 'matter-js';
 import type { Controls, FossilTypeId } from '../lib/types';
 import {
+  FOSSIL_MINE_SUCCESS_CHANCE,
   FOSSIL_PLATFORM_HEIGHT,
   FOSSIL_PLATFORM_Y,
-  FOSSIL_PICKUP_RADIUS,
-  FOSSIL_TYPE_META,
   FOSSIL_WORLD_HEIGHT,
   FOSSIL_WORLD_WIDTH,
   clampFossilCameraX,
-  createFossilPickups,
-  type FossilPickup,
+  createMineables,
+  findMineableAtWorldPoint,
+  pickRandomFossilType,
+  screenToFossilWorld,
+  type MineableKind,
+  type MineableNode,
 } from '../lib/fossils';
 
 const BALL_RADIUS = 20;
@@ -36,6 +39,62 @@ interface FossilExplorationCanvasProps {
   restartSignalRef?: React.MutableRefObject<boolean>;
 }
 
+/** Draw a mineable silhouette on the platform (MIE-34). */
+function drawMineable(ctx: CanvasRenderingContext2D, kind: MineableKind, sx: number, sy: number) {
+  switch (kind) {
+    case 'rock': {
+      ctx.fillStyle = '#6b7280';
+      ctx.strokeStyle = '#374151';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx - 22, sy + 6);
+      ctx.lineTo(sx - 14, sy - 18);
+      ctx.lineTo(sx + 4, sy - 24);
+      ctx.lineTo(sx + 20, sy - 10);
+      ctx.lineTo(sx + 16, sy + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
+    case 'plant': {
+      ctx.strokeStyle = '#166534';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + 10);
+      ctx.quadraticCurveTo(sx - 4, sy - 6, sx, sy - 22);
+      ctx.stroke();
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.ellipse(sx - 12, sy - 10, 10, 6, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(sx + 12, sy - 12, 10, 6, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(sx, sy - 20, 8, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'tree': {
+      ctx.fillStyle = '#4e342e';
+      ctx.fillRect(sx - 5, sy - 8, 10, 22);
+      ctx.fillStyle = '#1b5e20';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 38);
+      ctx.lineTo(sx - 22, sy - 6);
+      ctx.lineTo(sx + 22, sy - 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#2e7d32';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy - 22, 18, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+}
+
 export default function FossilExplorationCanvas({
   controls,
   isPlaying,
@@ -49,7 +108,7 @@ export default function FossilExplorationCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const ballRef = useRef<Matter.Body | null>(null);
-  const pickupsRef = useRef<FossilPickup[]>([]);
+  const mineablesRef = useRef<MineableNode[]>([]);
   const cameraXRef = useRef(0);
   const controlsRef = useRef(controls);
   const hasJumpedRef = useRef(false);
@@ -85,6 +144,28 @@ export default function FossilExplorationCanvas({
     ballStrokeColorRef.current = ballStrokeColor;
   }, [ballColor, ballStrokeColor]);
 
+  /** Attempt to mine the node under the pointer; 20% roll awards a random fossil (MIE-34). */
+  const handleMinePointer = useCallback((clientX: number, clientY: number) => {
+    if (!isPlayingRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { worldX, worldY } = screenToFossilWorld(
+      clientX,
+      clientY,
+      canvas,
+      cameraXRef.current,
+      zoomRef.current,
+    );
+    const node = findMineableAtWorldPoint(mineablesRef.current, worldX, worldY);
+    if (!node) return;
+
+    node.mined = true;
+    if (Math.random() < FOSSIL_MINE_SUCCESS_CHANCE) {
+      onFossilCollectRef.current(pickRandomFossilType());
+    }
+  }, []);
+
   const initializeWorld = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -117,7 +198,7 @@ export default function FossilExplorationCanvas({
     );
 
     Matter.World.add(engine.world, [ball, platform]);
-    pickupsRef.current = createFossilPickups();
+    mineablesRef.current = createMineables();
     cameraXRef.current = 0;
     fallSentRef.current = false;
     lastFrameTimeRef.current = 0;
@@ -185,15 +266,6 @@ export default function FossilExplorationCanvas({
           onFallRef.current();
         }
 
-        for (const pickup of pickupsRef.current) {
-          if (pickup.collected) continue;
-          const dist = Math.hypot(ball.position.x - pickup.x, ball.position.y - pickup.y);
-          if (dist < BALL_RADIUS + FOSSIL_PICKUP_RADIUS) {
-            pickup.collected = true;
-            onFossilCollectRef.current(pickup.type);
-          }
-        }
-
         cameraXRef.current = clampFossilCameraX(ball.position.x, canvas.width, FOSSIL_WORLD_WIDTH);
         const camX = cameraXRef.current;
         const z = zoomRef.current;
@@ -242,21 +314,10 @@ export default function FossilExplorationCanvas({
         ctx.lineWidth = 3;
         ctx.strokeRect(-camX, FOSSIL_PLATFORM_Y, FOSSIL_WORLD_WIDTH, FOSSIL_PLATFORM_HEIGHT);
 
-        for (const pickup of pickupsRef.current) {
-          if (pickup.collected) continue;
-          const sx = pickup.x - camX;
-          const meta = FOSSIL_TYPE_META[pickup.type];
-          ctx.beginPath();
-          ctx.arc(sx, pickup.y, FOSSIL_PICKUP_RADIUS, 0, Math.PI * 2);
-          ctx.fillStyle = meta.color;
-          ctx.fill();
-          ctx.strokeStyle = '#1f2937';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.font = '16px serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(meta.emoji, sx, pickup.y);
+        for (const node of mineablesRef.current) {
+          if (node.mined) continue;
+          const sx = node.x - camX;
+          drawMineable(ctx, node.kind, sx, node.y);
         }
 
         const bx = ball.position.x - camX;
@@ -309,6 +370,19 @@ export default function FossilExplorationCanvas({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [isPlaying]);
+
+  // Pointer/tap mining on canvas (MIE-34) — separate from movement touch zones.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      handleMinePointer(e.clientX, e.clientY);
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown);
+    return () => canvas.removeEventListener('pointerdown', onPointerDown);
+  }, [handleMinePointer]);
 
   return (
     <canvas
