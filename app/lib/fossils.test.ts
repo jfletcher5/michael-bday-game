@@ -9,10 +9,13 @@ import {
   addFossilToInventory,
   clampFossilCameraX,
   countFossilInventory,
-  createFossilPickups,
+  createMineables,
+  findMineableAtWorldPoint,
+  FOSSIL_MINE_SUCCESS_CHANCE,
   FOSSIL_SPAWN_COUNT,
   FOSSIL_TYPES,
   FOSSIL_WORLD_WIDTH,
+  pickRandomFossilType,
 } from './fossils';
 import { isEventTypeLive, isFossilEventActive } from './gameEvents';
 import type { GameEvent } from './types';
@@ -24,16 +27,35 @@ import {
 import { validateLevelDocument } from './levelValidation';
 
 describe('fossils helpers', () => {
-  it('creates a deterministic spawn table of fossils', () => {
-    const a = createFossilPickups();
-    const b = createFossilPickups();
+  it('creates a deterministic spawn table of mineables (MIE-34)', () => {
+    const a = createMineables();
+    const b = createMineables();
     assert.equal(a.length, FOSSIL_SPAWN_COUNT);
     assert.deepEqual(
-      a.map((p) => ({ id: p.id, type: p.type, x: p.x })),
-      b.map((p) => ({ id: p.id, type: p.type, x: p.x })),
+      a.map((n) => ({ id: n.id, kind: n.kind, x: n.x })),
+      b.map((n) => ({ id: n.id, kind: n.kind, x: n.x })),
     );
-    assert.ok(a.every((p) => FOSSIL_TYPES.includes(p.type)));
-    assert.ok(a.every((p) => p.x > 0 && p.x < FOSSIL_WORLD_WIDTH));
+    assert.ok(a.every((n) => ['plant', 'rock', 'tree'].includes(n.kind)));
+    assert.ok(a.every((n) => !n.mined));
+    assert.ok(a.every((n) => n.x > 0 && n.x < FOSSIL_WORLD_WIDTH));
+  });
+
+  it('finds unmined nodes at world point and ignores mined nodes', () => {
+    const nodes = createMineables();
+    const target = nodes[0];
+    const hit = findMineableAtWorldPoint(nodes, target.x, target.y);
+    assert.equal(hit?.id, target.id);
+    target.mined = true;
+    assert.equal(findMineableAtWorldPoint(nodes, target.x, target.y), null);
+  });
+
+  it('pickRandomFossilType returns valid types from rng', () => {
+    assert.equal(pickRandomFossilType(() => 0), FOSSIL_TYPES[0]);
+    assert.equal(pickRandomFossilType(() => 0.99), FOSSIL_TYPES[FOSSIL_TYPES.length - 1]);
+  });
+
+  it('mine success chance is 20%', () => {
+    assert.equal(FOSSIL_MINE_SUCCESS_CHANCE, 0.2);
   });
 
   it('clamps camera so the viewport stays in world bounds', () => {
