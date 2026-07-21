@@ -1810,17 +1810,10 @@ export async function publishAvatarUgcItem(
 // ============================================
 
 /**
- * Prefix search for gift recipient picker — reuses the admin Players tab pattern.
- * Returns up to 20 usernames matching the query (case-insensitive).
+ * @deprecated Use searchPlayersByPrefix — MIE-36: display-name doc ids must not be uppercased.
  */
 export async function searchUsersByPrefix(prefix: string, limitCount = 20): Promise<User[]> {
-  const term = prefix.trim().toUpperCase();
-  if (term.length < 1) return [];
-
-  const allUsers = await getAllUsers();
-  return allUsers
-    .filter((u) => u.username.toUpperCase().startsWith(term))
-    .slice(0, limitCount);
+  return searchPlayersByPrefix(prefix, limitCount);
 }
 
 /** Read undismissed gift notifications for the logged-in recipient. */
@@ -1836,7 +1829,8 @@ export function subscribeToPendingGifts(
   username: string,
   onChange: (gifts: PendingGift[]) => void,
 ): Unsubscribe {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  // MIE-36: users/{docId} keys are case-preserving display names — never uppercase.
+  const userRef = doc(db, USERS_COLLECTION, username.trim());
   return onSnapshot(userRef, (snap) => {
     if (!snap.exists()) {
       onChange([]);
@@ -1849,7 +1843,9 @@ export function subscribeToPendingGifts(
 
 /** Remove one pending gift after the recipient dismisses the popup. */
 export async function ackPendingGift(username: string, giftId: string): Promise<void> {
-  const userRef = doc(db, USERS_COLLECTION, username.toUpperCase());
+  // MIE-36: resolve canonical doc id so dismiss works for mixed-case display names.
+  const docId = (await resolveUserDocId(username)) ?? username.trim();
+  const userRef = doc(db, USERS_COLLECTION, docId);
   const userDoc = await getDoc(userRef);
   if (!userDoc.exists()) return;
 
@@ -1867,10 +1863,13 @@ export async function giftShopItem(
   toUsername: string,
   request: GiftShopItemRequest,
 ): Promise<{ gifter: User; recipientUsername: string }> {
-  const gifterKey = fromUsername.toUpperCase();
-  const recipientKey = toUsername.toUpperCase();
+  // MIE-36: resolve canonical doc ids — post-MIE-23 names are mixed-case, not legacy ABC ids.
+  const gifterKey = await resolveUserDocId(fromUsername);
+  if (!gifterKey) throw new Error('Gifter not found');
+  const recipientKey = await resolveUserDocId(toUsername);
+  if (!recipientKey) throw new Error('Player not found');
 
-  if (gifterKey === recipientKey) {
+  if (gifterKey.toLowerCase() === recipientKey.toLowerCase()) {
     throw new Error('You cannot gift items to yourself');
   }
 

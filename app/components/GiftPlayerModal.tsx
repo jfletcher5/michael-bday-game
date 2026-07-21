@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { searchUsersByPrefix, giftShopItem, type GiftShopItemRequest } from '../lib/firestore';
+import { searchPlayersByPrefix, giftShopItem, type GiftShopItemRequest } from '../lib/firestore';
 import { User } from '../lib/types';
 import { formatGems } from '../lib/gamepasses';
 
@@ -44,7 +44,7 @@ export default function GiftPlayerModal({
     setSubmitting(false);
   }, [open, giftItem.itemId]);
 
-  // Debounced prefix search — same pattern as admin Players tab.
+  // Debounced prefix search — same pattern as friends page (MIE-20 / MIE-36).
   useEffect(() => {
     if (!open || selected) return;
     const term = search.trim();
@@ -56,7 +56,7 @@ export default function GiftPlayerModal({
     const handle = window.setTimeout(async () => {
       setSearching(true);
       try {
-        const matches = await searchUsersByPrefix(term);
+        const matches = await searchPlayersByPrefix(term);
         // Hide the gifter from recipient results.
         setResults(matches.filter((u) => u.username !== gifter.username));
       } catch (err) {
