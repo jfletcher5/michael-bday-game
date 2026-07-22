@@ -1,23 +1,45 @@
 /**
- * Fossil Exploration constants and helpers (MIE-31).
- * Crafting recipes / 5 event balls are deferred to a follow-up ticket.
+ * Fossil Exploration constants and helpers (MIE-31, MIE-33).
+ * Fossil sprites + craft recipe table shared with Fossil Craft Machine (MIE-32).
  */
 
-import type { FossilTypeId } from './types';
+import type { FossilBallId, FossilTypeId } from './types';
 
 /** Ordered fossil piece types used for spawn tables and inventory UI. */
 export const FOSSIL_TYPES: FossilTypeId[] = ['amber', 'bone', 'shell', 'claw', 'fern'];
 
 export const FOSSIL_TYPE_META: Record<
   FossilTypeId,
-  { label: string; emoji: string; color: string }
+  { label: string; emoji: string; color: string; imageSrc: string }
 > = {
-  amber: { label: 'Amber', emoji: '🟠', color: '#f59e0b' },
-  bone: { label: 'Bone', emoji: '🦴', color: '#f5f5f4' },
-  shell: { label: 'Shell', emoji: '🐚', color: '#fda4af' },
-  claw: { label: 'Claw', emoji: '🦖', color: '#a8a29e' },
-  fern: { label: 'Fern', emoji: '🌿', color: '#4ade80' },
+  amber: { label: 'Amber', emoji: '🟠', color: '#f59e0b', imageSrc: '/fossils/amber.png' },
+  bone: { label: 'Bone', emoji: '🦴', color: '#f5f5f4', imageSrc: '/fossils/bone.png' },
+  shell: { label: 'Shell', emoji: '🐚', color: '#fda4af', imageSrc: '/fossils/shell.png' },
+  claw: { label: 'Claw', emoji: '🦖', color: '#a8a29e', imageSrc: '/fossils/claw.png' },
+  fern: { label: 'Fern', emoji: '🌿', color: '#4ade80', imageSrc: '/fossils/fern.png' },
 };
+
+/** On-canvas fossil pickup sprite size (MIE-33). */
+export const FOSSIL_SPRITE_SIZE = 36;
+
+/** Michael's two-fossil → ball recipes; keys are sorted type pairs (MIE-33). */
+export const FOSSIL_CRAFT_RECIPES: Record<string, FossilBallId> = {
+  'amber+amber': 'deadility',
+  'amber+shell': 'rockylity',
+  'bone+fern': 'swimtility',
+  'bone+claw': 'ancienty',
+  'amber+fern': 'fossility',
+};
+
+/** Canonical key for a fossil pair — order-independent (MIE-33). */
+export function fossilPairKey(a: FossilTypeId, b: FossilTypeId): string {
+  return [a, b].sort().join('+');
+}
+
+/** Match two inventory fossils to a crafted ball id, or null if no recipe (MIE-33). */
+export function matchFossilRecipe(a: FossilTypeId, b: FossilTypeId): FossilBallId | null {
+  return FOSSIL_CRAFT_RECIPES[fossilPairKey(a, b)] ?? null;
+}
 
 /** Wide exploration world (camera follows the ball horizontally). */
 export const FOSSIL_WORLD_WIDTH = 3200;
