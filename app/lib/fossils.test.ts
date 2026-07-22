@@ -11,10 +11,14 @@ import {
   countFossilInventory,
   createMineables,
   findMineableAtWorldPoint,
+  FOSSIL_CRAFT_RECIPES,
   FOSSIL_MINE_SUCCESS_CHANCE,
   FOSSIL_SPAWN_COUNT,
+  FOSSIL_TYPE_META,
   FOSSIL_TYPES,
   FOSSIL_WORLD_WIDTH,
+  fossilPairKey,
+  matchFossilRecipe,
   pickRandomFossilType,
 } from './fossils';
 import { isEventTypeLive, isFossilEventActive } from './gameEvents';
@@ -70,6 +74,40 @@ describe('fossils helpers', () => {
     assert.deepEqual(next, { amber: 1, bone: 1 });
     assert.equal(countFossilInventory(next), 2);
     assert.equal(countFossilInventory(undefined), 0);
+  });
+
+  it('exposes fossil artwork paths for each type (MIE-33)', () => {
+    for (const type of FOSSIL_TYPES) {
+      assert.match(FOSSIL_TYPE_META[type].imageSrc, /^\/fossils\/[a-z]+\.png$/);
+    }
+  });
+});
+
+describe('fossil craft recipes (MIE-33)', () => {
+  it('encodes all five Michael recipes', () => {
+    assert.equal(matchFossilRecipe('amber', 'amber'), 'deadility');
+    assert.equal(matchFossilRecipe('amber', 'shell'), 'rockylity');
+    assert.equal(matchFossilRecipe('fern', 'bone'), 'swimtility');
+    assert.equal(matchFossilRecipe('bone', 'claw'), 'ancienty');
+    assert.equal(matchFossilRecipe('fern', 'amber'), 'fossility');
+    assert.equal(Object.keys(FOSSIL_CRAFT_RECIPES).length, 5);
+  });
+
+  it('treats fossil order as irrelevant', () => {
+    assert.equal(matchFossilRecipe('shell', 'amber'), 'rockylity');
+    assert.equal(matchFossilRecipe('bone', 'fern'), 'swimtility');
+    assert.equal(fossilPairKey('amber', 'shell'), fossilPairKey('shell', 'amber'));
+  });
+
+  it('requires two amber for Deadility', () => {
+    assert.equal(matchFossilRecipe('amber', 'amber'), 'deadility');
+    assert.equal(matchFossilRecipe('amber', 'bone'), null);
+  });
+
+  it('returns null for invalid fossil pairs', () => {
+    assert.equal(matchFossilRecipe('claw', 'claw'), null);
+    assert.equal(matchFossilRecipe('shell', 'fern'), null);
+    assert.equal(matchFossilRecipe('claw', 'fern'), null);
   });
 });
 

@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * Fossil Exploration mode entry (MIE-31).
+ * Fossil Exploration mode entry (MIE-31, MIE-33).
  * Event-gated: players may only start while Fossil Event is live.
  * A run already in progress may finish after the event expires.
- * Crafting recipes / 5 event balls are deferred.
  */
+
+import Image from 'next/image';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -38,7 +39,8 @@ export default function FossilExplorationPage() {
   const [runState, setRunState] = useState<RunState>('checking');
   const [activeEvents, setActiveEvents] = useState<GameEvent[]>([]);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [statusFossil, setStatusFossil] = useState<FossilTypeId | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [sessionFossils, setSessionFossils] = useState(0);
   const restartSignalRef = useRef(false);
   const entryDecidedRef = useRef(false);
@@ -98,11 +100,13 @@ export default function FossilExplorationPage() {
         setUser(result.user);
         setCurrentUser(result.user);
         setSessionFossils((n) => n + 1);
-        setStatusMsg(`Collected ${FOSSIL_TYPE_META[type].emoji} ${FOSSIL_TYPE_META[type].label}!`);
-        window.setTimeout(() => setStatusMsg(null), 1800);
+        setStatusFossil(type);
+        setStatusError(null);
+        window.setTimeout(() => setStatusFossil(null), 1800);
       } catch (err) {
         console.error('Failed to award fossil:', err);
-        setStatusMsg('Could not save fossil — try again.');
+        setStatusError('Could not save fossil — try again.');
+        window.setTimeout(() => setStatusError(null), 1800);
       }
     },
     [],
@@ -120,7 +124,8 @@ export default function FossilExplorationPage() {
     }
     restartSignalRef.current = true;
     setSessionFossils(0);
-    setStatusMsg(null);
+    setStatusFossil(null);
+    setStatusError(null);
     setRunState('playing');
     setControls({ left: false, right: false, jump: false });
   };
@@ -191,10 +196,22 @@ export default function FossilExplorationPage() {
             This run: {sessionFossils} · Total saved: {inventoryTotal}
             {!fossilLive && startedWhileLive ? ' · Event ended (finish your run)' : ''}
           </p>
-          <div className="flex flex-wrap gap-1 mt-1">
+          <div className="flex flex-wrap gap-1.5 mt-1">
             {FOSSIL_TYPES.map((type) => (
-              <span key={type} className="text-xs bg-white/10 rounded px-1.5 py-0.5" title={FOSSIL_TYPE_META[type].label}>
-                {FOSSIL_TYPE_META[type].emoji} {user.fossilInventory?.[type] ?? 0}
+              <span
+                key={type}
+                className="inline-flex items-center gap-1 text-xs bg-white/10 rounded px-1.5 py-0.5"
+                title={FOSSIL_TYPE_META[type].label}
+              >
+                <Image
+                  src={FOSSIL_TYPE_META[type].imageSrc}
+                  alt={FOSSIL_TYPE_META[type].label}
+                  width={20}
+                  height={20}
+                  className="rounded-sm object-contain"
+                  unoptimized
+                />
+                {user.fossilInventory?.[type] ?? 0}
               </span>
             ))}
           </div>
@@ -208,12 +225,29 @@ export default function FossilExplorationPage() {
         </button>
       </div>
 
-      {statusMsg && (
+      {statusFossil && (
         <div
-          className="absolute top-28 left-1/2 -translate-x-1/2 z-20 bg-emerald-700/90 text-white px-4 py-2 rounded-xl text-sm font-medium"
+          className="absolute top-28 left-1/2 -translate-x-1/2 z-20 bg-emerald-700/90 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2"
           aria-live="polite"
         >
-          {statusMsg}
+          <Image
+            src={FOSSIL_TYPE_META[statusFossil].imageSrc}
+            alt=""
+            width={24}
+            height={24}
+            className="object-contain"
+            unoptimized
+          />
+          Collected {FOSSIL_TYPE_META[statusFossil].label}!
+        </div>
+      )}
+
+      {statusError && (
+        <div
+          className="absolute top-28 left-1/2 -translate-x-1/2 z-20 bg-red-700/90 text-white px-4 py-2 rounded-xl text-sm font-medium"
+          aria-live="polite"
+        >
+          {statusError}
         </div>
       )}
 

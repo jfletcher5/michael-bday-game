@@ -33,6 +33,14 @@ export interface PlayerSettings {
 /** Collectible fossil piece types found in Fossil Exploration (MIE-31). */
 export type FossilTypeId = 'amber' | 'bone' | 'shell' | 'claw' | 'fern';
 
+/** Crafted fossil-event balls from two fossils (MIE-33 recipes, craft UI in MIE-32). */
+export type FossilBallId =
+  | 'deadility'
+  | 'rockylity'
+  | 'swimtility'
+  | 'ancienty'
+  | 'fossility';
+
 /**
  * User account stored in Firestore
  */

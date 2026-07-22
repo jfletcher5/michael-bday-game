@@ -13,6 +13,9 @@ import {
   FOSSIL_MINE_SUCCESS_CHANCE,
   FOSSIL_PLATFORM_HEIGHT,
   FOSSIL_PLATFORM_Y,
+  FOSSIL_SPRITE_SIZE,
+  FOSSIL_TYPE_META,
+  FOSSIL_TYPES,
   FOSSIL_WORLD_HEIGHT,
   FOSSIL_WORLD_WIDTH,
   clampFossilCameraX,
@@ -26,6 +29,16 @@ import {
 
 const BALL_RADIUS = 20;
 const JUMP_FORCE = 0.18;
+/** How long a mined fossil sprite floats above the node (MIE-33). */
+const FOSSIL_POPUP_MS = 1400;
+
+interface FossilWorldPopup {
+  id: number;
+  type: FossilTypeId;
+  x: number;
+  y: number;
+  startMs: number;
+}
 
 interface FossilExplorationCanvasProps {
   controls: Controls;
@@ -37,6 +50,36 @@ interface FossilExplorationCanvasProps {
   onFall: () => void;
   /** Restart signal — when true, reset world once then clear via callback. */
   restartSignalRef?: React.MutableRefObject<boolean>;
+}
+
+/** Draw fossil artwork at world position; emoji circle fallback if sprite not loaded (MIE-33). */
+function drawFossilSprite(
+  ctx: CanvasRenderingContext2D,
+  type: FossilTypeId,
+  sx: number,
+  sy: number,
+  size: number,
+  images: Partial<Record<FossilTypeId, HTMLImageElement>>,
+  alpha = 1,
+) {
+  const meta = FOSSIL_TYPE_META[type];
+  const img = images[type];
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (img?.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, sx - size / 2, sy - size / 2, size, size);
+  } else {
+    // Fallback when artwork is still loading or failed to fetch.
+    ctx.fillStyle = meta.color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `${Math.round(size * 0.55)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(meta.emoji, sx, sy);
+  }
+  ctx.restore();
 }
 
 /** Draw a mineable silhouette on the platform (MIE-34). */
@@ -109,6 +152,9 @@ export default function FossilExplorationCanvas({
   const engineRef = useRef<Matter.Engine | null>(null);
   const ballRef = useRef<Matter.Body | null>(null);
   const mineablesRef = useRef<MineableNode[]>([]);
+  const fossilImagesRef = useRef<Partial<Record<FossilTypeId, HTMLImageElement>>>({});
+  const fossilPopupsRef = useRef<FossilWorldPopup[]>([]);
+  const popupIdRef = useRef(0);
   const cameraXRef = useRef(0);
   const controlsRef = useRef(controls);
   const hasJumpedRef = useRef(false);
@@ -144,6 +190,15 @@ export default function FossilExplorationCanvas({
     ballStrokeColorRef.current = ballStrokeColor;
   }, [ballColor, ballStrokeColor]);
 
+  // Preload Michael's fossil sprites for world popups (MIE-33).
+  useEffect(() => {
+    for (const type of FOSSIL_TYPES) {
+      const img = new Image();
+      img.src = FOSSIL_TYPE_META[type].imageSrc;
+      fossilImagesRef.current[type] = img;
+    }
+  }, []);
+
   /** Attempt to mine the node under the pointer; 20% roll awards a random fossil (MIE-34). */
   const handleMinePointer = useCallback((clientX: number, clientY: number) => {
     if (!isPlayingRef.current) return;
@@ -162,7 +217,15 @@ export default function FossilExplorationCanvas({
 
     node.mined = true;
     if (Math.random() < FOSSIL_MINE_SUCCESS_CHANCE) {
-      onFossilCollectRef.current(pickRandomFossilType());
+      const fossilType = pickRandomFossilType();
+      fossilPopupsRef.current.push({
+        id: popupIdRef.current++,
+        type: fossilType,
+        x: node.x,
+        y: node.y - 12,
+        startMs: performance.now(),
+      });
+      onFossilCollectRef.current(fossilType);
     }
   }, []);
 
@@ -199,6 +262,7 @@ export default function FossilExplorationCanvas({
 
     Matter.World.add(engine.world, [ball, platform]);
     mineablesRef.current = createMineables();
+    fossilPopupsRef.current = [];
     cameraXRef.current = 0;
     fallSentRef.current = false;
     lastFrameTimeRef.current = 0;
@@ -319,6 +383,26 @@ export default function FossilExplorationCanvas({
           const sx = node.x - camX;
           drawMineable(ctx, node.kind, sx, node.y);
         }
+
+        // Floating fossil sprites when a mine awards a piece (MIE-33 world pickup art).
+        const nowPopup = performance.now();
+        fossilPopupsRef.current = fossilPopupsRef.current.filter((popup) => {
+          const t = (nowPopup - popup.startMs) / FOSSIL_POPUP_MS;
+          if (t >= 1) return false;
+          const sx = popup.x - camX;
+          const sy = popup.y - t * 28;
+          const alpha = 1 - t * 0.35;
+          drawFossilSprite(
+            ctx,
+            popup.type,
+            sx,
+            sy,
+            FOSSIL_SPRITE_SIZE,
+            fossilImagesRef.current,
+            alpha,
+          );
+          return true;
+        });
 
         const bx = ball.position.x - camX;
         const by = ball.position.y;
