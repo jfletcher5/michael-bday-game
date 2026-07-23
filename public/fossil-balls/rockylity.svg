@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Rockylity ball</title>
+  <desc id="desc">Rocky fossil ball crafted from amber and shell fossils.</desc>
+  <defs>
+    <radialGradient id="rockGlow" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#d6d3d1"/>
+      <stop offset="50%" stop-color="#78716c"/>
+      <stop offset="100%" stop-color="#44403c"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#rockGlow)" stroke="#292524" stroke-width="4"/>
+  <polygon points="44,52 58,38 72,50 66,68 48,66" fill="#57534e" stroke="#1c1917" stroke-width="2"/>
+  <polygon points="72,78 88,64 98,82 84,96 66,90" fill="#a8a29e" stroke="#44403c" stroke-width="2"/>
+  <path d="M36 88 L52 74 L68 90 L84 76 L96 92" fill="none" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Fossility ball</title>
+  <desc id="desc">Classic fossil ball crafted from fern and amber fossils.</desc>
+  <defs>
+    <radialGradient id="fossilGlow" cx="34%" cy="28%" r="74%">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="45%" stop-color="#65a30d"/>
+      <stop offset="100%" stop-color="#3f6212"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#fossilGlow)" stroke="#1a2e05" stroke-width="4"/>
+  <path d="M44 78 C48 58 80 58 84 78 C80 92 48 92 44 78 Z" fill="#4ade80" stroke="#166534" stroke-width="2"/>
+  <path d="M52 70 C56 62 72 62 76 70" fill="none" stroke="#14532d" stroke-width="3"/>
+  <ellipse cx="64" cy="46" rx="14" ry="10" fill="#f59e0b" opacity="0.9"/>
+  <circle cx="64" cy="46" r="5" fill="#fde68a"/>
+</svg>
