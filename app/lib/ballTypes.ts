@@ -7,6 +7,7 @@ import { SEASON_CONFIGS, getSeasonBallById } from './seasons';
 import { getProPassBallById, PRO_PASS_BALLS } from './proPass';
 import { AURORA_BALL_ID } from './aurora';
 import { VIP_BALL_ID } from './gamepasses';
+import { FOSSIL_BALLS, getFossilBallById } from './fossilCraft';
 
 /**
  * Twemoji CDN base URL for SVG images
@@ -192,6 +193,7 @@ export function getBallTypeById(ballId: string): BallType {
     BALL_TYPES.find((b) => b.id === ballId) ||
     getSeasonBallById(ballId) ||
     getProPassBallById(ballId) ||
+    getFossilBallById(ballId) ||
     BALL_TYPES[0]
   );
 }
@@ -236,8 +238,13 @@ export function isBallOwned(ballId: string, ownedBalls: string[]): boolean {
 const POOP_BALL_ID = 'poop';
 const POOP_GIFT_GEM_PRICE = 200_000;
 
-/** Balls that can never be gifted — free default, event-only, or gamepass-granted. */
-const NON_GIFTABLE_BALL_IDS = new Set(['default', AURORA_BALL_ID, VIP_BALL_ID]);
+/** Balls that can never be gifted — free default, event-only, gamepass-granted, or crafted. */
+const NON_GIFTABLE_BALL_IDS = new Set([
+  'default',
+  AURORA_BALL_ID,
+  VIP_BALL_ID,
+  ...FOSSIL_BALLS.map((ball) => ball.id),
+]);
 
 /**
  * Canonical gem cost to gift a ball (MIE-35).

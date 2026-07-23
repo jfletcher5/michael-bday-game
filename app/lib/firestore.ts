@@ -41,7 +41,13 @@ import {
   type ProPassConfig,
 } from './proPass';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from './aurora';
-import { addFossilToInventory } from './fossils';
+import { addFossilToInventory, matchFossilRecipe } from './fossils';
+import {
+  createFossilCraftJob,
+  deductFossilsForCraft,
+  hasFossilsForCraft,
+  isFossilCraftComplete,
+} from './fossilCraft';
 import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
 import { getBallTypeById, getBallGiftGemPrice, isBallGiftable } from './ballTypes';
 import {
@@ -713,7 +719,6 @@ export interface FossilAwardResult {
 
 /**
  * Persist one collected fossil piece on the user document (transactional).
- * Crafting into event balls is deferred to a follow-up ticket.
  */
 export async function awardFossilPiece(
   username: string,
@@ -733,6 +738,75 @@ export async function awardFossilPiece(
       user: { ...userData, fossilInventory: inventory },
       type,
       inventory,
+    };
+  });
+}
+
+/**
+ * Start a Fossil Craft Machine job — deducts two fossils and stores a 30-minute timer (MIE-32).
+ */
+export async function startFossilCraft(
+  username: string,
+  fossilA: FossilTypeId,
+  fossilB: FossilTypeId,
+): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username);
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    if (userData.fossilCraftJob) throw new Error('A fossil craft is already in progress');
+
+    if (!hasFossilsForCraft(userData.fossilInventory, fossilA, fossilB)) {
+      throw new Error('Not enough fossils for this recipe');
+    }
+    if (!matchFossilRecipe(fossilA, fossilB)) {
+      throw new Error('Invalid fossil recipe');
+    }
+
+    const fossilCraftJob = createFossilCraftJob(fossilA, fossilB);
+    const fossilInventory = deductFossilsForCraft(userData.fossilInventory, fossilA, fossilB);
+
+    transaction.update(userRef, { fossilInventory, fossilCraftJob });
+
+    return {
+      ...userData,
+      fossilInventory,
+      fossilCraftJob,
+    };
+  });
+}
+
+/**
+ * Claim a finished Fossil Craft Machine job — grants the crafted ball (MIE-32).
+ */
+export async function claimFossilCraft(username: string): Promise<User> {
+  const userRef = doc(db, USERS_COLLECTION, username);
+
+  return runTransaction(db, async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists()) throw new Error('User not found');
+
+    const userData = userDoc.data() as User;
+    const job = userData.fossilCraftJob;
+    if (!job) throw new Error('No fossil craft to claim');
+    if (!isFossilCraftComplete(job, Date.now())) throw new Error('Craft is not finished yet');
+    if (userData.ownedBalls.includes(job.resultBallId)) {
+      transaction.update(userRef, { fossilCraftJob: null });
+      return { ...userData, fossilCraftJob: null };
+    }
+
+    transaction.update(userRef, {
+      fossilCraftJob: null,
+      ownedBalls: arrayUnion(job.resultBallId),
+    });
+
+    return {
+      ...userData,
+      fossilCraftJob: null,
+      ownedBalls: [...userData.ownedBalls, job.resultBallId],
     };
   });
 }

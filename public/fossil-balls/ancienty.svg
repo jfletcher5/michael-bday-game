@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Ancienty ball</title>
+  <desc id="desc">Ancient fossil ball crafted from bone and claw fossils.</desc>
+  <defs>
+    <radialGradient id="ancientGlow" cx="36%" cy="30%" r="72%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="45%" stop-color="#a16207"/>
+      <stop offset="100%" stop-color="#713f12"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#ancientGlow)" stroke="#451a03" stroke-width="4"/>
+  <path d="M42 46 C50 34 78 34 86 46 L80 58 C74 50 54 50 48 58 Z" fill="#f5f5f4" stroke="#78716c" stroke-width="2"/>
+  <path d="M38 78 C46 66 82 66 90 78 L84 92 C76 84 52 84 44 92 Z" fill="#e7e5e4" stroke="#57534e" stroke-width="2"/>
+  <circle cx="64" cy="64" r="6" fill="#fde68a"/>
+</svg>
