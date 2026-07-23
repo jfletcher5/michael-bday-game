@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Swimtility ball</title>
+  <desc id="desc">Aquatic fossil ball crafted from fern and bone fossils.</desc>
+  <defs>
+    <radialGradient id="swimGlow" cx="35%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="45%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#swimGlow)" stroke="#0c4a6e" stroke-width="4"/>
+  <path d="M28 70 Q40 58 52 70 T76 70 T100 70" fill="none" stroke="#e0f2fe" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
+  <ellipse cx="64" cy="52" rx="18" ry="10" fill="#f5f5f4" opacity="0.9"/>
+  <path d="M48 88 C56 80 72 80 80 88" fill="none" stroke="#4ade80" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -9,10 +9,12 @@ import { BALL_TYPES, getBallTypeById, isBallOwned, getBallGiftGemPrice, formatPr
 import { GAMEPASSES, formatGems, VIP_BALL_ID, type GamepassId } from '../lib/gamepasses';
 import { getOwnedSeasonBalls } from '../lib/seasons';
 import { getOwnedProPassBalls } from '../lib/proPass';
+import { FOSSIL_BALLS } from '../lib/fossilCraft';
 import { User, BallType, ShopOffer } from '../lib/types';
 import { AURORA_BALL_ID, AURORA_SHARD_GOAL } from '../lib/aurora';
 import MenuBackground from '../components/MenuBackground';
 import GiftPlayerModal from '../components/GiftPlayerModal';
+import FossilCraftMachine from '../components/FossilCraftMachine';
 import type { GiftShopItemRequest } from '../lib/firestore';
 import { PageHeader, PageHero, StatPill, Alert } from '../components/ui';
 
@@ -94,6 +96,21 @@ export default function ShopPage() {
     setUser(updatedGifter);
     setCurrentUser(updatedGifter);
     setSuccess(`Gift sent to ${recipientUsername}!`);
+  };
+
+  const handleCraftUserUpdate = (updatedUser: User) => {
+    setUser(updatedUser);
+    setCurrentUser(updatedUser);
+  };
+
+  const handleCraftMessage = (message: string, tone: 'success' | 'error' = 'success') => {
+    if (tone === 'error') {
+      setError(message);
+      setSuccess(null);
+    } else {
+      setSuccess(message);
+      setError(null);
+    }
   };
 
   // Handle gamepass purchase with gems
@@ -634,6 +651,14 @@ export default function ShopPage() {
               {renderBallCard(ball)}
             </div>
           ))}
+          {user && FOSSIL_BALLS.filter((ball) => user.ownedBalls.includes(ball.id)).map(ball => (
+            <div key={ball.id} className="relative">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-600 to-lime-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full z-10 whitespace-nowrap">
+                FOSSIL CRAFTED
+              </div>
+              {renderBallCard(ball)}
+            </div>
+          ))}
         </div>
 
         {activeOffers.length > 0 && (
@@ -659,6 +684,14 @@ export default function ShopPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
             {GAMEPASSES.map((pass) => renderGamepassCard(pass))}
+          </div>
+
+          <div className="mt-6">
+            <FossilCraftMachine
+              user={user}
+              onUserUpdate={handleCraftUserUpdate}
+              onMessage={handleCraftMessage}
+            />
           </div>
         </div>
       </div>

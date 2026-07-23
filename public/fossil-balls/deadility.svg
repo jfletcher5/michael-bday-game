@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Deadility ball</title>
+  <desc id="desc">Dark fossil ball crafted from two amber fossils.</desc>
+  <defs>
+    <radialGradient id="deadGlow" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#71717a"/>
+      <stop offset="55%" stop-color="#3f3f46"/>
+      <stop offset="100%" stop-color="#18181b"/>
+    </radialGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#deadGlow)" stroke="#09090b" stroke-width="4"/>
+  <ellipse cx="64" cy="58" rx="22" ry="14" fill="#f59e0b" opacity="0.85"/>
+  <circle cx="64" cy="58" r="8" fill="#fde68a"/>
+  <path d="M40 88 C52 72 76 72 88 88" fill="none" stroke="#27272a" stroke-width="6" stroke-linecap="round"/>
+  <path d="M30 42 C42 28 86 28 98 42" fill="none" stroke="#52525b" stroke-width="3" opacity="0.6"/>
+</svg>

@@ -41,6 +41,15 @@ export type FossilBallId =
   | 'ancienty'
   | 'fossility';
 
+/** In-progress Fossil Craft Machine job stored on the user document (MIE-32). */
+export interface FossilCraftJob {
+  fossilA: FossilTypeId;
+  fossilB: FossilTypeId;
+  resultBallId: FossilBallId;
+  startedAtMs: number;
+  endsAtMs: number;
+}
+
 /**
  * User account stored in Firestore
  */
@@ -74,8 +83,10 @@ export interface User {
   playerSettings?: PlayerSettings; // Optional zoom + menu color preferences
   auroraShards?: number; // Saved Aurora Shard progress, capped at 12
   auroraBallUnlocked?: boolean; // True once the player reaches 12 Aurora Shards
-  /** Typed fossil piece counts collected in Fossil Exploration (MIE-31). Crafting deferred. */
+  /** Typed fossil piece counts collected in Fossil Exploration (MIE-31). */
   fossilInventory?: Partial<Record<FossilTypeId, number>>;
+  /** Active Fossil Craft Machine job — persists across logout (MIE-32). */
+  fossilCraftJob?: FossilCraftJob | null;
   ownedAvatarItems?: string[]; // Avatar item catalog ids the player owns (MIE-12)
   equippedAvatar?: EquippedAvatar; // One equipped item per body slot (MIE-12)
   skinColor?: string; // Hex body tint for 3D avatar — free, default #FFFFFF (MIE-18)
