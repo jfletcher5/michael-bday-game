@@ -14,6 +14,7 @@ import {
   hasFossilsForCraft,
   isFossilCraftComplete,
   listFossilCraftRecipes,
+  toggleFossilSelection,
 } from './fossilCraft';
 
 describe('fossil craft helpers (MIE-32)', () => {
@@ -66,5 +67,61 @@ describe('fossil craft helpers (MIE-32)', () => {
     assert.equal(recipes.length, 5);
     assert.ok(recipes.some((r) => r.ballId === 'deadility'));
     assert.ok(recipes.some((r) => r.ballId === 'fossility'));
+  });
+});
+
+describe('fossil craft selection toggle (MIE-39)', () => {
+  it('fills slot B when tapping the same fossil twice with 2+ copies', () => {
+    const next = toggleFossilSelection(
+      { selectedA: 'amber', selectedB: null },
+      'amber',
+      { amber: 2 },
+    );
+    assert.deepEqual(next, { selectedA: 'amber', selectedB: 'amber' });
+  });
+
+  it('deselects slot A when only one copy is available', () => {
+    const next = toggleFossilSelection(
+      { selectedA: 'amber', selectedB: null },
+      'amber',
+      { amber: 1 },
+    );
+    assert.deepEqual(next, { selectedA: null, selectedB: null });
+  });
+
+  it('clears both slots when tapping a fully selected same-type pair', () => {
+    const next = toggleFossilSelection(
+      { selectedA: 'amber', selectedB: 'amber' },
+      'amber',
+      { amber: 2 },
+    );
+    assert.deepEqual(next, { selectedA: null, selectedB: null });
+  });
+
+  it('deselects slot A in a mixed pair when tapping slot A fossil again', () => {
+    const next = toggleFossilSelection(
+      { selectedA: 'amber', selectedB: 'shell' },
+      'amber',
+      { amber: 1, shell: 1 },
+    );
+    assert.deepEqual(next, { selectedA: null, selectedB: 'shell' });
+  });
+
+  it('deselects slot B when tapping slot B fossil', () => {
+    const next = toggleFossilSelection(
+      { selectedA: 'amber', selectedB: 'shell' },
+      'shell',
+      { amber: 1, shell: 1 },
+    );
+    assert.deepEqual(next, { selectedA: 'amber', selectedB: null });
+  });
+
+  it('fills empty slot A on first tap', () => {
+    const next = toggleFossilSelection(
+      { selectedA: null, selectedB: null },
+      'fern',
+      { fern: 3 },
+    );
+    assert.deepEqual(next, { selectedA: 'fern', selectedB: null });
   });
 });
