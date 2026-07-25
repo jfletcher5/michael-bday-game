@@ -74,6 +74,51 @@ export function getFossilBallById(ballId: string): BallType | undefined {
   return FOSSIL_BALL_BY_ID.get(ballId as FossilBallId);
 }
 
+/** Craft slot selection state for the Fossil Craft Machine UI. */
+export interface FossilCraftSelection {
+  selectedA: FossilTypeId | null;
+  selectedB: FossilTypeId | null;
+}
+
+/**
+ * Toggle a fossil type in the craft machine selection (MIE-39).
+ * Same-type pairs need two inventory copies — second tap fills slot B instead of deselecting.
+ */
+export function toggleFossilSelection(
+  current: FossilCraftSelection,
+  type: FossilTypeId,
+  inventory: Partial<Record<FossilTypeId, number>> | undefined,
+): FossilCraftSelection {
+  const { selectedA, selectedB } = current;
+  const count = inventory?.[type] ?? 0;
+
+  if (selectedA === type) {
+    // Second tap on same type: fill slot B when player has 2+ copies (Amber + Amber).
+    if (!selectedB && count >= 2) {
+      return { selectedA: type, selectedB: type };
+    }
+    // Both slots hold this type — clear the pair.
+    if (selectedB === type) {
+      return { selectedA: null, selectedB: null };
+    }
+    // Mixed pair — deselect slot A only.
+    return { selectedA: null, selectedB };
+  }
+
+  if (selectedB === type) {
+    return { selectedA, selectedB: null };
+  }
+
+  if (!selectedA) {
+    return { selectedA: type, selectedB: null };
+  }
+  if (!selectedB) {
+    return { selectedA, selectedB: type };
+  }
+  // Both slots full — replace slot B.
+  return { selectedA, selectedB: type };
+}
+
 /** Human-readable recipe label for the craft machine UI. */
 export function formatFossilRecipe(fossilA: FossilTypeId, fossilB: FossilTypeId): string {
   const metaA = FOSSIL_TYPE_META[fossilA];
