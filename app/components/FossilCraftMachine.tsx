@@ -16,6 +16,7 @@ import {
   getFossilCraftRemainingMs,
   isFossilCraftComplete,
   listFossilCraftRecipes,
+  toggleFossilSelection,
 } from '../lib/fossilCraft';
 import {
   FOSSIL_TYPE_META,
@@ -66,24 +67,13 @@ export default function FossilCraftMachine({ user, onUserUpdate, onMessage }: Fo
 
   const toggleFossil = (type: FossilTypeId) => {
     if (craftJob) return;
-    if (selectedA === type) {
-      setSelectedA(null);
-      return;
-    }
-    if (selectedB === type) {
-      setSelectedB(null);
-      return;
-    }
-    if (!selectedA) {
-      setSelectedA(type);
-      return;
-    }
-    if (!selectedB) {
-      setSelectedB(type);
-      return;
-    }
-    // Replace the second slot when both are already chosen.
-    setSelectedB(type);
+    const next = toggleFossilSelection(
+      { selectedA, selectedB },
+      type,
+      user.fossilInventory,
+    );
+    setSelectedA(next.selectedA);
+    setSelectedB(next.selectedB);
   };
 
   const handleStartCraft = async () => {
@@ -173,6 +163,31 @@ export default function FossilCraftMachine({ user, onUserUpdate, onMessage }: Fo
       {/* Fossil picker — hidden while a craft is running */}
       {!craftJob && (
         <>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {(['Slot 1', 'Slot 2'] as const).map((label, index) => {
+              const slotType = index === 0 ? selectedA : selectedB;
+              const meta = slotType ? FOSSIL_TYPE_META[slotType] : null;
+              return (
+                <div
+                  key={label}
+                  className={`flex-1 min-w-[120px] rounded-xl border-2 border-dashed p-2 text-center ${
+                    slotType ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+                  {meta ? (
+                    <div className="flex items-center justify-center gap-1 mt-1">
+                      <Image src={meta.imageSrc} alt={meta.label} width={24} height={24} className="rounded" unoptimized />
+                      <span className="text-sm font-bold text-gray-800">{meta.label}</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-2">Tap a fossil</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Your fossils</p>
           <div className="flex flex-wrap gap-2 mb-4">
             {FOSSIL_TYPES.map((type) => {
