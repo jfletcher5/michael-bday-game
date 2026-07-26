@@ -11,6 +11,7 @@ import {
   AVATAR_PART_TYPES,
   AVATAR_PART_LABELS,
   mergeAvatarCatalog,
+  UGC_TEXTURE_PART_TYPES,
 } from '../lib/avatarItems';
 import type { AvatarItem, AvatarPartType, User } from '../lib/types';
 
@@ -24,6 +25,7 @@ export function AvatarCreateTab({ admin }: Props) {
   const [partType, setPartType] = useState<AvatarPartType>('shirt');
   const [modelUrl, setModelUrl] = useState('');
   const [previewImageUrl, setPreviewImageUrl] = useState('');
+  const [textureUrl, setTextureUrl] = useState('');
   const [shirtTextureUrl, setShirtTextureUrl] = useState('');
   const [stock, setStock] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -31,6 +33,14 @@ export function AvatarCreateTab({ admin }: Props) {
 
   const handleCreate = async () => {
     if (!name.trim()) return;
+
+    // Body slots need a dedicated 3D wear texture — shop thumbnail alone is not enough (MIE-38)
+    const wearTexture = textureUrl.trim() || shirtTextureUrl.trim();
+    if (UGC_TEXTURE_PART_TYPES.includes(partType) && !wearTexture) {
+      setFeedback('Texture URL is required for 3D body-slot items (wear map, not just shop thumbnail).');
+      return;
+    }
+
     setSubmitting(true);
     setFeedback('');
     try {
@@ -43,7 +53,7 @@ export function AvatarCreateTab({ admin }: Props) {
         stock: stock.trim() === '' ? null : Math.max(0, parseInt(stock, 10) || 0),
         modelUrl: modelUrl.trim() || undefined,
         previewImageUrl: previewImageUrl.trim() || undefined,
-        shirtTextureUrl: shirtTextureUrl.trim() || undefined,
+        textureUrl: wearTexture || undefined,
       });
       setFeedback('Avatar item created!');
       setName('');
@@ -105,13 +115,19 @@ export function AvatarCreateTab({ admin }: Props) {
       <input
         value={previewImageUrl}
         onChange={(e) => setPreviewImageUrl(e.target.value)}
-        placeholder="Preview image URL"
+        placeholder="Shop thumbnail URL (flat card image)"
+        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+      />
+      <input
+        value={textureUrl}
+        onChange={(e) => setTextureUrl(e.target.value)}
+        placeholder="3D wear texture URL (required for body slots)"
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
       />
       <input
         value={shirtTextureUrl}
         onChange={(e) => setShirtTextureUrl(e.target.value)}
-        placeholder="Shirt texture photo URL (optional)"
+        placeholder="Legacy shirt texture URL (optional fallback)"
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
       />
       <button
