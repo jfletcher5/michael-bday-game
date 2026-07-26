@@ -28,7 +28,7 @@ interface Avatar3DViewerProps {
 const PLACEHOLDER_TEXTURE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-/** Load a texture for a body-part mesh; falls back to flat skin tint when missing. */
+/** Load a texture for a body-part mesh; skin tint only when no wear textureUrl (MIE-38). */
 function PartMesh({
   textureUrl,
   color,

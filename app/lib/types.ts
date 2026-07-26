@@ -150,11 +150,11 @@ export interface AvatarItem {
   gemPrice: number; // 0 = free
   onSale: boolean;
   stock: number | null; // null = unlimited; when 0 and onSale, shows sold out
-  previewImageUrl?: string; // Thumbnail on shop card + mannequin layer
+  previewImageUrl?: string; // Shop grid thumbnail ONLY — flat card art (MIE-38)
   modelUrl?: string; // Legacy Sketchfab URL — deprecated for new UGC (MIE-18)
   modelGlbUrl?: string; // Optional hosted base mesh for body parts (MIE-18)
-  shirtTextureUrl?: string; // Legacy texture alias — prefer textureUrl
-  textureUrl?: string; // 2D texture map applied to 3D body-part mesh (MIE-18)
+  shirtTextureUrl?: string; // Legacy wear texture alias — prefer textureUrl (MIE-38)
+  textureUrl?: string; // Required for 3D body-slot wear — UV-mapped on procedural mesh (MIE-38)
   faceOverlayUrl?: string; // 2D expression overlay for face slot items (MIE-18)
   emoteAnimation?: string; // Rig clip id, e.g. 'wave' (MIE-18)
   source?: AvatarItemSource; // system | creator | ugc

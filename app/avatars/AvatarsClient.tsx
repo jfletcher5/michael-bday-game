@@ -25,6 +25,7 @@ import {
   isAvatarItemOffsaleForPlayer,
   EMOTE_COOLDOWN_MS,
   EMOTE_DURATION_MS,
+  getAvatarShopThumbnailUrl,
 } from '../lib/avatarItems';
 import { formatGems } from '../lib/gamepasses';
 import { AVATAR_OPTIONS, getAvatarUrl } from '../lib/avatars';
@@ -285,11 +286,13 @@ export default function AvatarsClient() {
             const limited = item.stock !== null;
             const soldOut = limited && item.stock! <= 0 && !owned;
 
+            const thumbnailUrl = getAvatarShopThumbnailUrl(item);
+
             return (
               <div key={item.id} className="bg-white rounded-2xl p-3 border border-gray-200 flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-glow-sm">
                 <div className="relative h-20 mb-2 bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center">
-                  {item.previewImageUrl ? (
-                    <Image src={item.previewImageUrl} alt="" width={64} height={64} className="object-contain" unoptimized />
+                  {thumbnailUrl ? (
+                    <Image src={thumbnailUrl} alt="" width={64} height={64} className="object-contain" unoptimized />
                   ) : (
                     <span className="text-3xl">👕</span>
                   )}

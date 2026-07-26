@@ -93,6 +93,8 @@ export const BUILTIN_AVATAR_ITEMS: AvatarItem[] = [
     onSale: true,
     stock: null,
     previewImageUrl: '/starter-shirt-blue.svg',
+    // UV-friendly wear texture for 3D body mesh (MIE-38) — shop card stays flat SVG above
+    textureUrl: '/starter-shirt-blue-texture.png',
     createdAtMs: 0,
     updatedAtMs: 0,
   },
@@ -106,6 +108,7 @@ export const BUILTIN_AVATAR_ITEMS: AvatarItem[] = [
     onSale: true,
     stock: null,
     previewImageUrl: '/starter-hair-brown.svg',
+    textureUrl: '/starter-hair-brown-texture.png',
     createdAtMs: 0,
     updatedAtMs: 0,
   },
@@ -119,6 +122,7 @@ export const BUILTIN_AVATAR_ITEMS: AvatarItem[] = [
     onSale: true,
     stock: null,
     previewImageUrl: '/starter-pants-gray.svg',
+    textureUrl: '/starter-pants-gray-texture.png',
     createdAtMs: 0,
     updatedAtMs: 0,
   },
@@ -222,10 +226,21 @@ export function getEquippedAvatarItems(
   return result;
 }
 
-/** Resolve the 2D texture URL for a body-part mesh (MIE-18). */
+/** Shop grid / card thumbnail — always flat preview art, never the 3D wear map (MIE-38). */
+export function getAvatarShopThumbnailUrl(item: AvatarItem | undefined): string | null {
+  if (!item) return null;
+  return item.previewImageUrl ?? null;
+}
+
+/**
+ * Resolve the 2D texture URL mapped onto a 3D body-part mesh (MIE-18 / MIE-38).
+ * Does not fall back to previewImageUrl — missing textureUrl means skin-tinted mesh only.
+ */
 export function getAvatarPartTextureUrl(item: AvatarItem | undefined): string | null {
   if (!item) return null;
-  return item.textureUrl ?? item.shirtTextureUrl ?? item.previewImageUrl ?? null;
+  // Face/emote slots use overlay or rig animation, not body-part UV maps
+  if (item.partType === 'face' || item.partType === 'emote') return null;
+  return item.textureUrl ?? item.shirtTextureUrl ?? null;
 }
 
 /** Face slot uses a 2D overlay composited on the 3D head (MIE-18). */
