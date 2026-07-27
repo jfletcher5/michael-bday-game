@@ -55,7 +55,7 @@ import {
   normalizeUserAvatarFields,
   STARTER_OWNED_ITEM_IDS,
 } from './avatarItems';
-import type { AvatarItem, AvatarPartType, EquippedAvatar } from './types';
+import type { AvatarItem, AvatarPartType, AvatarStudioProject, EquippedAvatar } from './types';
 import { normalizeLevelDocument } from './levelWorld';
 
 // Collection name in Firestore
@@ -1875,6 +1875,81 @@ export async function publishAvatarUgcItem(
     PublishAvatarUgcInput & { username: string; password: string },
     { itemId: string; user: User }
   >(functions, 'publishAvatarUgcItem');
+  const result = await fn({ ...avatarAuth(user), ...input });
+  return normalizeUserAvatarFields(result.data.user);
+}
+
+// ============================================
+// AVATAR ITEM STUDIO (MIE-37)
+// ============================================
+
+/** Create a blank studio project via Cloud Function (owner-scoped). */
+export async function createAvatarStudioProject(
+  user: User,
+  targetPartType: AvatarPartType = 'shirt',
+  name = 'Untitled project',
+): Promise<AvatarStudioProject> {
+  const fn = httpsCallable<
+    { username: string; password: string; targetPartType: AvatarPartType; name: string },
+    AvatarStudioProject
+  >(functions, 'createAvatarStudioProject');
+  const result = await fn({ ...avatarAuth(user), targetPartType, name });
+  return result.data;
+}
+
+/** Persist studio project edits — layers, slot, name (MIE-37). */
+export async function updateAvatarStudioProject(
+  user: User,
+  project: AvatarStudioProject,
+): Promise<AvatarStudioProject> {
+  const fn = httpsCallable<
+    { username: string; password: string; project: AvatarStudioProject },
+    AvatarStudioProject
+  >(functions, 'updateAvatarStudioProject');
+  const result = await fn({ ...avatarAuth(user), project });
+  return result.data;
+}
+
+/** Load one studio project by id (owner-only via CF). */
+export async function getAvatarStudioProject(
+  user: User,
+  projectId: string,
+): Promise<AvatarStudioProject | null> {
+  const fn = httpsCallable<
+    { username: string; password: string; projectId: string },
+    AvatarStudioProject | null
+  >(functions, 'getAvatarStudioProject');
+  const result = await fn({ ...avatarAuth(user), projectId });
+  return result.data;
+}
+
+/** List the logged-in player's studio drafts. */
+export async function getMyAvatarStudioProjects(user: User): Promise<AvatarStudioProject[]> {
+  const fn = httpsCallable<{ username: string; password: string }, AvatarStudioProject[]>(
+    functions,
+    'getMyAvatarStudioProjects',
+  );
+  const result = await fn(avatarAuth(user));
+  return result.data ?? [];
+}
+
+export interface PublishAvatarStudioInput {
+  projectId: string;
+  name: string;
+  description: string;
+  /** Base64 PNG payload (no data: prefix) flattened from studio layers. */
+  textureBase64: string;
+}
+
+/** Flatten project layers server-side and publish to avatarItems with source: studio (MIE-37). */
+export async function publishAvatarStudioItem(
+  user: User,
+  input: PublishAvatarStudioInput,
+): Promise<User> {
+  const fn = httpsCallable<
+    PublishAvatarStudioInput & { username: string; password: string },
+    { itemId: string; user: User }
+  >(functions, 'publishAvatarStudioItem');
   const result = await fn({ ...avatarAuth(user), ...input });
   return normalizeUserAvatarFields(result.data.user);
 }

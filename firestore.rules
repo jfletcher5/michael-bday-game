@@ -68,6 +68,12 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Avatar Item Studio drafts — owner read/write enforced via Cloud Functions (MIE-37).
+    match /avatarStudioProjects/{projectId} {
+      allow read: if false;
+      allow write: if false;
+    }
+
     // Shop gift audit log — clients write via giftShopItem transaction (MIE-21).
     match /giftTransactions/{giftId} {
       allow read: if true;
