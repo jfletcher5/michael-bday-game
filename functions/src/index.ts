@@ -912,3 +912,202 @@ export const publishAvatarUgcItem = functions.https.onCall(async (data) => {
 
   return { itemId, user: updatedUser };
 });
+
+// ============================================
+// AVATAR ITEM STUDIO (MIE-37)
+// ============================================
+
+const AVATAR_STUDIO_PROJECTS_COLLECTION = 'avatarStudioProjects';
+
+/** Upload studio texture bytes to public Storage. */
+async function uploadAvatarStudioTexture(buffer: Buffer, filename: string): Promise<string> {
+  const bucket = admin.storage().bucket();
+  const path = `public/avatar-studio/${filename}`;
+  const file = bucket.file(path);
+  await file.save(buffer, {
+    contentType: 'image/png',
+    metadata: { cacheControl: 'public, max-age=31536000' },
+  });
+  await file.makePublic();
+  return `https://storage.googleapis.com/${bucket.name}/${path}`;
+}
+
+/** Create a blank avatar studio project for the logged-in player. */
+export const createAvatarStudioProject = functions.https.onCall(async (data) => {
+  const { username, password, targetPartType = 'shirt', name = 'Untitled project' } = data ?? {};
+  if (!username || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username or password');
+  }
+  if (!UGC_TEXTURE_PART_TYPES.has(String(targetPartType))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid target part type');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const now = Date.now();
+  const projectId = `studio-${now}-${crypto.randomBytes(4).toString('hex')}`;
+  const project = {
+    id: projectId,
+    ownerUsername: playerUsername,
+    name: String(name).trim().slice(0, 60) || 'Untitled project',
+    targetPartType,
+    layers: [],
+    createdAtMs: now,
+    updatedAtMs: now,
+  };
+
+  await db.collection(AVATAR_STUDIO_PROJECTS_COLLECTION).doc(projectId).set(project);
+  return project;
+});
+
+/** Save avatar studio project edits (owner-only). */
+export const updateAvatarStudioProject = functions.https.onCall(async (data) => {
+  const { username, password, project } = data ?? {};
+  if (!username || !password || !project?.id) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username, password, or project');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const ref = db.collection(AVATAR_STUDIO_PROJECTS_COLLECTION).doc(String(project.id));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Project not found');
+  }
+  const existing = snap.data() as Record<string, unknown>;
+  if (existing.ownerUsername !== playerUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Not your project');
+  }
+
+  const now = Date.now();
+  const updated = {
+    id: String(project.id),
+    ownerUsername: playerUsername,
+    name: String(project.name || existing.name).trim().slice(0, 60),
+    targetPartType: UGC_TEXTURE_PART_TYPES.has(String(project.targetPartType))
+      ? project.targetPartType
+      : existing.targetPartType,
+    layers: Array.isArray(project.layers) ? project.layers : [],
+    exportedTextureUrl: project.exportedTextureUrl || existing.exportedTextureUrl || null,
+    previewImageUrl: project.previewImageUrl || existing.previewImageUrl || null,
+    createdAtMs: existing.createdAtMs || now,
+    updatedAtMs: now,
+  };
+
+  await ref.set(updated);
+  return updated;
+});
+
+/** Load one studio project (owner-only). */
+export const getAvatarStudioProject = functions.https.onCall(async (data) => {
+  const { username, password, projectId } = data ?? {};
+  if (!username || !password || !projectId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username, password, or projectId');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const snap = await db.collection(AVATAR_STUDIO_PROJECTS_COLLECTION).doc(String(projectId)).get();
+  if (!snap.exists) return null;
+
+  const project = snap.data() as Record<string, unknown>;
+  if (project.ownerUsername !== playerUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Not your project');
+  }
+  return { id: snap.id, ...project };
+});
+
+/** List all studio projects owned by the player. */
+export const getMyAvatarStudioProjects = functions.https.onCall(async (data) => {
+  const { username, password } = data ?? {};
+  if (!username || !password) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing username or password');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const snap = await db
+    .collection(AVATAR_STUDIO_PROJECTS_COLLECTION)
+    .where('ownerUsername', '==', playerUsername)
+    .orderBy('updatedAtMs', 'desc')
+    .limit(50)
+    .get();
+
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+});
+
+/** Publish a studio project to the avatar shop with flattened texture (MIE-37). */
+export const publishAvatarStudioItem = functions.https.onCall(async (data) => {
+  const { username, password, projectId, name, description, textureBase64 } = data ?? {};
+  if (!username || !password || !projectId || !name || !textureBase64) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required publish fields');
+  }
+  if (isProfaneText(String(name))) {
+    throw new functions.https.HttpsError('invalid-argument', 'Name contains blocked words');
+  }
+
+  const playerUsername = await verifyUserCredentials(username, password);
+  const projectRef = db.collection(AVATAR_STUDIO_PROJECTS_COLLECTION).doc(String(projectId));
+  const projectSnap = await projectRef.get();
+  if (!projectSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Project not found');
+  }
+  const project = projectSnap.data() as Record<string, unknown>;
+  if (project.ownerUsername !== playerUsername) {
+    throw new functions.https.HttpsError('permission-denied', 'Not your project');
+  }
+
+  const partType = String(project.targetPartType);
+  if (!UGC_TEXTURE_PART_TYPES.has(partType)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid part type on project');
+  }
+
+  const buffer = Buffer.from(String(textureBase64), 'base64');
+  const textureUrl = await uploadAvatarStudioTexture(buffer, `${projectId}.png`);
+
+  const now = Date.now();
+  const itemId = `studio-${now}-${crypto.randomBytes(4).toString('hex')}`;
+  const item = {
+    id: itemId,
+    name: String(name).trim().slice(0, 40),
+    description: String(description || '').trim().slice(0, 200),
+    creatorUsername: playerUsername,
+    partType,
+    gemPrice: 5,
+    onSale: true,
+    stock: null,
+    previewImageUrl: textureUrl,
+    textureUrl,
+    source: 'studio',
+    createdAtMs: now,
+    updatedAtMs: now,
+  };
+
+  const userRef = db.collection(USERS_COLLECTION).doc(playerUsername);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'User not found');
+  }
+  const userData = userSnap.data() as Record<string, unknown>;
+  const owned = Array.isArray(userData.ownedAvatarItems) ? [...userData.ownedAvatarItems] : [];
+  if (!owned.includes(itemId)) owned.push(itemId);
+
+  const equipped = (userData.equippedAvatar as Record<string, string | null> | undefined) ?? {};
+  equipped[partType] = itemId;
+
+  await db.collection(AVATAR_ITEMS_COLLECTION).doc(itemId).set(item);
+  await userRef.update({
+    ownedAvatarItems: owned,
+    equippedAvatar: equipped,
+  });
+  await projectRef.update({
+    exportedTextureUrl: textureUrl,
+    previewImageUrl: textureUrl,
+    updatedAtMs: now,
+  });
+
+  const updatedUser = {
+    ...userData,
+    username: playerUsername,
+    ownedAvatarItems: owned,
+    equippedAvatar: equipped,
+  };
+
+  return { itemId, user: updatedUser };
+});

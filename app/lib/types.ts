@@ -133,7 +133,7 @@ export type AvatarPartType =
   | 'face'; // 2D expression overlay on 3D head (MIE-18)
 
 /** Where an avatar catalog row originated — UGC items are Gemini-generated textures (MIE-18). */
-export type AvatarItemSource = 'system' | 'creator' | 'ugc';
+export type AvatarItemSource = 'system' | 'creator' | 'ugc' | 'studio';
 
 /** Equipped avatar item ids keyed by body slot. */
 export type EquippedAvatar = Record<AvatarPartType, string | null>;
@@ -172,6 +172,46 @@ export interface AvatarDraft {
   textureUrl: string;
   previewImageUrl: string;
   createdAtMs: number;
+}
+
+/** Primitive shape kinds available in Avatar Item Studio (MIE-37). */
+export type AvatarStudioShape = 'square' | 'circle' | 'triangle' | 'star';
+
+/** One composited layer on the 2D design surface — image upload or vector shape (MIE-37). */
+export type AvatarStudioLayer =
+  | {
+      id: string;
+      kind: 'image';
+      /** Data URL or Storage HTTPS URL for the uploaded decal. */
+      storageUrl: string;
+      x: number;
+      y: number;
+      scale: number;
+      rotation: number;
+    }
+  | {
+      id: string;
+      kind: 'shape';
+      shape: AvatarStudioShape;
+      fill: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+    };
+
+/** Private draft project in Avatar Item Studio before publish (MIE-37). */
+export interface AvatarStudioProject {
+  id: string;
+  ownerUsername: string;
+  name: string;
+  targetPartType: AvatarPartType;
+  layers: AvatarStudioLayer[];
+  exportedTextureUrl?: string;
+  previewImageUrl?: string;
+  createdAtMs: number;
+  updatedAtMs: number;
 }
 
 /**

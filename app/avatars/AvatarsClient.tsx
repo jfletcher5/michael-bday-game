@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import { getCurrentUser, setCurrentUser } from '../lib/auth';
 import {
@@ -31,7 +32,6 @@ import { formatGems } from '../lib/gamepasses';
 import { AVATAR_OPTIONS, getAvatarUrl } from '../lib/avatars';
 import type { AvatarItem, AvatarPartType, User } from '../lib/types';
 import Avatar3DViewer from '../components/Avatar3DViewer';
-import AvatarUgcPanel from '../components/AvatarUgcPanel';
 import EmoteOverlay from '../components/EmoteOverlay';
 import VerifiedBadge from '../components/VerifiedBadge';
 import MenuBackground from '../components/MenuBackground';
@@ -49,7 +49,6 @@ export default function AvatarsClient() {
   const [playingEmote, setPlayingEmote] = useState<AvatarItem | null>(null);
   const [emoteOnCooldown, setEmoteOnCooldown] = useState(false);
   const [rigEmoteActive, setRigEmoteActive] = useState(false);
-  const [draftTexture, setDraftTexture] = useState<{ partType: AvatarPartType; textureUrl: string } | null>(null);
   const [verifiedCreators, setVerifiedCreators] = useState<Set<string>>(new Set());
 
   const catalog = useMemo(() => mergeAvatarCatalog(firestoreItems), [firestoreItems]);
@@ -198,16 +197,19 @@ export default function AvatarsClient() {
 
         <PageHero title="👤 Avatar Shop" subtitle="Dress up your 3D character" />
 
-        <AvatarUgcPanel
-          user={user}
-          onPublished={(updated) => {
-            setUser(updated);
-            setCurrentUser(updated);
-          }}
-          onError={setError}
-          onSuccess={setSuccess}
-          onDraftPreview={setDraftTexture}
-        />
+        {/* Avatar Item Studio replaces Gemini "Create with AI" (MIE-37). */}
+        <div className="bg-white rounded-3xl shadow-glow p-4 mb-4">
+          <h2 className="font-bold text-gray-800 mb-1">🎨 Avatar Item Studio</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Design your own shirt, hair, and more with shapes and uploaded images — then publish to the shop.
+          </p>
+          <Link
+            href="/avatar-studio"
+            className="inline-flex min-h-[40px] items-center px-4 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+          >
+            Open Avatar Studio
+          </Link>
+        </div>
 
         {(error || success) && (
           <div className="mb-4 max-w-md mx-auto space-y-2">
@@ -222,7 +224,6 @@ export default function AvatarsClient() {
             layers={equippedLayers}
             skinColor={user.skinColor ?? DEFAULT_SKIN_COLOR}
             emoteActive={rigEmoteActive}
-            draftTexture={draftTexture}
             enableRotation
           />
           <div className="flex-1 text-center sm:text-left w-full">
@@ -308,6 +309,9 @@ export default function AvatarsClient() {
                   by {item.creatorUsername}
                   {item.source === 'ugc' && (
                     <span className="bg-indigo-100 text-indigo-700 px-1 rounded text-[8px] font-bold">UGC</span>
+                  )}
+                  {item.source === 'studio' && (
+                    <span className="bg-amber-100 text-amber-800 px-1 rounded text-[8px] font-bold">STUDIO</span>
                   )}
                   {verifiedCreators.has(item.creatorUsername) && <VerifiedBadge />}
                 </p>
