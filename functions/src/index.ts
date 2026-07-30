@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import * as crypto from 'crypto';
+import * as zlib from 'zlib';
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -706,8 +707,9 @@ export const cleanupExpiredSessions = functions.pubsub
 const AVATAR_ITEMS_COLLECTION = 'avatarItems';
 const AVATAR_DRAFTS_COLLECTION = 'avatarDrafts';
 
+// Includes head wear texture slot for Avatar Studio (MIE-41)
 const UGC_TEXTURE_PART_TYPES = new Set([
-  'shirt', 'hair', 'pants', 'arm', 'leg', 'hand', 'foot', 'sock', 'accessory',
+  'shirt', 'hair', 'pants', 'arm', 'leg', 'hand', 'foot', 'sock', 'accessory', 'head',
 ]);
 
 function isProfaneText(text: string): boolean {
@@ -715,25 +717,95 @@ function isProfaneText(text: string): boolean {
   return BLOCKED_NAME_SUBSTRINGS.some((word) => lower.includes(word));
 }
 
-/** Build a deterministic fallback SVG texture when Gemini is unavailable. */
-function buildFallbackTextureSvg(partType: string, prompt: string): string {
+/** PNG CRC32 for chunk checksums (MIE-40 — raster fallback instead of SVG). */
+function pngCrc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i];
+    for (let k = 0; k < 8; k++) {
+      c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+    }
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length, 0);
+  const typeBuf = Buffer.from(type, 'ascii');
+  const typeAndData = Buffer.concat([typeBuf, data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(pngCrc32(typeAndData), 0);
+  return Buffer.concat([len, typeAndData, crc]);
+}
+
+/** Solid-color PNG — Three.js-safe wear map when Gemini is unavailable (MIE-40). */
+function buildFallbackTexturePng(prompt: string): Buffer {
   let hash = 0;
   for (let i = 0; i < prompt.length; i++) {
     hash = (hash * 31 + prompt.charCodeAt(i)) >>> 0;
   }
-  const hue = hash % 360;
-  const safePrompt = prompt.slice(0, 40).replace(/[<>&"']/g, '');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="hsl(${hue},75%,55%)"/>
-        <stop offset="100%" stop-color="hsl(${(hue + 60) % 360},70%,40%)"/>
-      </linearGradient>
-    </defs>
-    <rect width="256" height="256" fill="url(#g)"/>
-    <text x="128" y="120" text-anchor="middle" font-size="14" fill="white" font-family="sans-serif">${partType}</text>
-    <text x="128" y="145" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-family="sans-serif">${safePrompt}</text>
-  </svg>`;
+  // Simple HSL→RGB from prompt hash so fallbacks still look distinct
+  const h = (hash % 360) / 360;
+  const s = 0.7;
+  const l = 0.5;
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const r = Math.round(hue2rgb(p, q, h + 1 / 3) * 255);
+  const g = Math.round(hue2rgb(p, q, h) * 255);
+  const b = Math.round(hue2rgb(p, q, h - 1 / 3) * 255);
+
+  const width = 256;
+  const height = 256;
+  const rowSize = 1 + width * 4;
+  const raw = Buffer.alloc(rowSize * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * rowSize;
+    raw[rowStart] = 0;
+    for (let x = 0; x < width; x++) {
+      const i = rowStart + 1 + x * 4;
+      // Mild vertical gradient so the fallback isn't a flat brick
+      const shade = 0.85 + (y / height) * 0.3;
+      raw[i] = Math.min(255, Math.round(r * shade));
+      raw[i + 1] = Math.min(255, Math.round(g * shade));
+      raw[i + 2] = Math.min(255, Math.round(b * shade));
+      raw[i + 3] = 255;
+    }
+  }
+
+  const compressed = zlib.deflateSync(raw);
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // RGBA
+  return Buffer.concat([
+    signature,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', compressed),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+/** Reject SVG wear URLs — they crash Avatar3DViewer on many clients (MIE-40). */
+function assertRasterTextureUrl(url: string): void {
+  const lower = url.toLowerCase();
+  if (lower.includes('.svg') || lower.startsWith('data:image/svg')) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Texture must be a PNG/JPEG raster image (SVG wear maps are not supported)',
+    );
+  }
 }
 
 /** Upload texture bytes to public Storage and return the HTTPS URL. */
@@ -794,8 +866,8 @@ async function generateTextureImage(partType: string, prompt: string): Promise<{
     }
   }
 
-  const svg = buildFallbackTextureSvg(partType, prompt);
-  return { buffer: Buffer.from(svg, 'utf-8'), contentType: 'image/svg+xml' };
+  // Prefer PNG over SVG so equipping never bricks the Three.js viewer (MIE-40)
+  return { buffer: buildFallbackTexturePng(prompt), contentType: 'image/png' };
 }
 
 /** Generate a preview texture via Gemini (server-side) for player UGC (MIE-18). */
@@ -817,8 +889,12 @@ export const generateAvatarTexture = functions.https.onCall(async (data) => {
   const playerUsername = await verifyUserCredentials(username, password);
   const { buffer, contentType } = await generateTextureImage(String(partType), String(prompt).trim());
   const draftId = `draft-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const ext = contentType.includes('svg') ? 'svg' : 'png';
-  const textureUrl = await uploadAvatarTexture(buffer, contentType, `${draftId}.${ext}`);
+  // Always store as PNG/JPEG raster — never SVG (MIE-40)
+  const safeType = contentType.includes('jpeg') || contentType.includes('jpg') ? 'image/jpeg' : 'image/png';
+  const ext = safeType === 'image/jpeg' ? 'jpg' : 'png';
+  const uploadBuffer =
+    contentType.includes('svg') ? buildFallbackTexturePng(String(prompt).trim()) : buffer;
+  const textureUrl = await uploadAvatarTexture(uploadBuffer, safeType, `${draftId}.${ext}`);
 
   const now = Date.now();
   await db.collection(AVATAR_DRAFTS_COLLECTION).doc(draftId).set({
@@ -854,6 +930,8 @@ export const publishAvatarUgcItem = functions.https.onCall(async (data) => {
   if (isProfaneText(String(name)) || (ugcPrompt && isProfaneText(String(ugcPrompt)))) {
     throw new functions.https.HttpsError('invalid-argument', 'Name or prompt contains blocked words');
   }
+  assertRasterTextureUrl(String(textureUrl));
+  if (previewImageUrl) assertRasterTextureUrl(String(previewImageUrl));
 
   const playerUsername = await verifyUserCredentials(username, password);
   const draftSnap = await db.collection(AVATAR_DRAFTS_COLLECTION).doc(String(draftId)).get();
@@ -1059,6 +1137,13 @@ export const publishAvatarStudioItem = functions.https.onCall(async (data) => {
   }
 
   const buffer = Buffer.from(String(textureBase64), 'base64');
+  if (buffer.length < 32) {
+    throw new functions.https.HttpsError('invalid-argument', 'Texture data is empty or too small');
+  }
+  // PNG magic bytes — reject non-raster uploads that would brick equip (MIE-40)
+  if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) {
+    throw new functions.https.HttpsError('invalid-argument', 'Studio publish requires a PNG texture');
+  }
   const textureUrl = await uploadAvatarStudioTexture(buffer, `${projectId}.png`);
 
   const now = Date.now();

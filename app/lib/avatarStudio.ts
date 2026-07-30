@@ -228,7 +228,8 @@ export function getLayerBounds(
     };
   }
 
-  const size = canvasSize * 0.25 * layer.scale;
+  // Match drawImageLayer base size (half canvas) so hit-testing covers the visible decal (MIE-42)
+  const size = canvasSize * 0.5 * layer.scale;
   return {
     x: layer.x - size / 2,
     y: layer.y - size / 2,

@@ -1,15 +1,16 @@
 'use client';
 
-import { Suspense, useRef, useMemo } from 'react';
-import { Canvas, useFrame, useLoader } from '@react-three/fiber';
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { TextureLoader, SRGBColorSpace, type Group } from 'three';
+import { TextureLoader, SRGBColorSpace, type Group, type Texture } from 'three';
 import type { AvatarItem, AvatarPartType } from '../lib/types';
 import {
   DEFAULT_SKIN_COLOR,
   getAvatarFaceOverlayUrl,
   getAvatarPartTextureUrl,
   getEmoteAnimationId,
+  isLoadableAvatarTextureUrl,
 } from '../lib/avatarItems';
 
 interface Avatar3DViewerProps {
@@ -20,15 +21,87 @@ interface Avatar3DViewerProps {
   className?: string;
   /** Allow drag/touch orbit — home menu + avatar shop (MIE-18 point #13). */
   enableRotation?: boolean;
-  /** Live UGC draft texture applied to a body slot during Gemini preview (MIE-18). */
+  /** Live UGC/studio draft texture applied to a body slot during preview (MIE-18 / MIE-37). */
   draftTexture?: { partType: AvatarPartType; textureUrl: string } | null;
 }
 
-/** 1×1 transparent pixel — satisfies useLoader when a slot has no texture yet. */
-const PLACEHOLDER_TEXTURE =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+/**
+ * Catch Three.js / R3F render errors so a bad texture never whitescreens the app (MIE-40).
+ */
+class AvatarViewerErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
 
-/** Load a texture for a body-part mesh; skin tint only when no wear textureUrl (MIE-38). */
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.warn('[Avatar3DViewer] render failed — showing fallback', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback ?? (
+          <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+            Avatar preview unavailable
+          </div>
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * Load a texture without Suspense/useLoader — failed URLs fall back to skin tint (MIE-40).
+ */
+function useSafeTexture(url: string | null): Texture | null {
+  const [map, setMap] = useState<Texture | null>(null);
+
+  useEffect(() => {
+    if (!url || !isLoadableAvatarTextureUrl(url)) {
+      setMap(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loader = new TextureLoader();
+    loader.load(
+      url,
+      (tex) => {
+        if (cancelled) {
+          tex.dispose();
+          return;
+        }
+        tex.colorSpace = SRGBColorSpace;
+        setMap(tex);
+      },
+      undefined,
+      () => {
+        if (!cancelled) {
+          console.warn('[Avatar3DViewer] texture failed to load — using skin tint', url);
+          setMap(null);
+        }
+      },
+    );
+
+    return () => {
+      cancelled = true;
+      setMap((prev) => {
+        prev?.dispose();
+        return null;
+      });
+    };
+  }, [url]);
+
+  return map;
+}
+
+/** Body-part box mesh — skin tint when texture is missing or fails to load (MIE-38 / MIE-40). */
 function PartMesh({
   textureUrl,
   color,
@@ -40,21 +113,38 @@ function PartMesh({
   position: [number, number, number];
   size: [number, number, number];
 }) {
-  const map = useLoader(TextureLoader, textureUrl ?? PLACEHOLDER_TEXTURE);
-  if (textureUrl) map.colorSpace = SRGBColorSpace;
+  const map = useSafeTexture(textureUrl);
 
   return (
     <mesh position={position} castShadow>
       <boxGeometry args={size} />
-      <meshStandardMaterial color={color} map={textureUrl ? map : undefined} />
+      <meshStandardMaterial color={color} map={map ?? undefined} />
+    </mesh>
+  );
+}
+
+/** Head sphere that accepts an optional wear texture (MIE-41). */
+function HeadMesh({
+  textureUrl,
+  color,
+}: {
+  textureUrl: string | null;
+  color: string;
+}) {
+  const map = useSafeTexture(textureUrl);
+
+  return (
+    <mesh position={[0, 1.5, 0]} castShadow>
+      <sphereGeometry args={[0.38, 24, 24]} />
+      <meshStandardMaterial color={color} map={map ?? undefined} />
     </mesh>
   );
 }
 
 /** 2D face expression plane composited on the 3D head (MIE-18). */
 function FaceOverlay({ url }: { url: string }) {
-  const map = useLoader(TextureLoader, url);
-  map.colorSpace = SRGBColorSpace;
+  const map = useSafeTexture(url);
+  if (!map) return null;
   return (
     <mesh position={[0, 1.52, 0.33]}>
       <planeGeometry args={[0.55, 0.55]} />
@@ -85,10 +175,13 @@ function AvatarRig({
 
   const textures = useMemo(() => {
     const resolve = (part: AvatarPartType, item?: AvatarItem) => {
-      if (draftTexture?.partType === part) return draftTexture.textureUrl;
+      if (draftTexture?.partType === part) {
+        return isLoadableAvatarTextureUrl(draftTexture.textureUrl) ? draftTexture.textureUrl : null;
+      }
       return getAvatarPartTextureUrl(item);
     };
     return {
+      head: resolve('head', layers.head),
       shirt: resolve('shirt', layers.shirt),
       hair: resolve('hair', layers.hair),
       pants: resolve('pants', layers.pants),
@@ -116,11 +209,8 @@ function AvatarRig({
 
   return (
     <group position={[0, -0.2, 0]}>
-      {/* Head — skin tinted */}
-      <mesh position={[0, 1.5, 0]} castShadow>
-        <sphereGeometry args={[0.38, 24, 24]} />
-        <meshStandardMaterial color={skinColor} />
-      </mesh>
+      {/* Head — wear texture when equipped/drafted, else skin tint (MIE-41) */}
+      <HeadMesh textureUrl={textures.head} color={skinColor} />
 
       {/* Hair */}
       <PartMesh textureUrl={textures.hair} color={skinColor} position={[0, 1.82, 0]} size={[0.72, 0.28, 0.5]} />
@@ -206,7 +296,7 @@ function AvatarScene({
 }
 
 /**
- * Three.js avatar preview — 3D body parts with 2D textures, free skin tint, manual rotation (MIE-18).
+ * Three.js avatar preview — resilient to bad UGC textures (MIE-18 / MIE-40).
  */
 export default function Avatar3DViewer({
   layers,
@@ -218,20 +308,22 @@ export default function Avatar3DViewer({
 }: Avatar3DViewerProps) {
   return (
     <div className={`relative w-40 h-64 sm:w-48 sm:h-72 ${className}`}>
-      <Canvas
-        camera={{ position: [0, 0.8, 3.2], fov: 42 }}
-        shadows
-        gl={{ antialias: true, alpha: true }}
-        style={{ background: 'transparent' }}
-      >
-        <AvatarScene
-          layers={layers}
-          skinColor={skinColor}
-          emoteActive={emoteActive}
-          enableRotation={enableRotation}
-          draftTexture={draftTexture}
-        />
-      </Canvas>
+      <AvatarViewerErrorBoundary>
+        <Canvas
+          camera={{ position: [0, 0.8, 3.2], fov: 42 }}
+          shadows
+          gl={{ antialias: true, alpha: true }}
+          style={{ background: 'transparent' }}
+        >
+          <AvatarScene
+            layers={layers}
+            skinColor={skinColor}
+            emoteActive={emoteActive}
+            enableRotation={enableRotation}
+            draftTexture={draftTexture}
+          />
+        </Canvas>
+      </AvatarViewerErrorBoundary>
       {enableRotation && (
         <p className="absolute bottom-0 left-0 right-0 text-center text-[10px] text-gray-400 pointer-events-none">
           Drag to rotate

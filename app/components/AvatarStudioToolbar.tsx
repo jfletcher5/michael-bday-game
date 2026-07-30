@@ -11,6 +11,9 @@ interface AvatarStudioToolbarProps {
   onPartTypeChange: (part: AvatarPartType) => void;
   onUploadImage: () => void;
   onDeleteSelected: () => void;
+  /** Scale / rotate require a selected layer (MIE-42). */
+  onScaleSelected?: (delta: number) => void;
+  onRotateSelected?: (degrees: number) => void;
   hasSelection: boolean;
   disabled?: boolean;
 }
@@ -25,7 +28,7 @@ const TOOL_BUTTONS: { id: AvatarStudioTool; label: string; icon: string }[] = [
 ];
 
 /**
- * Tool palette + body-slot picker for Avatar Item Studio (MIE-37).
+ * Tool palette + body-slot picker for Avatar Item Studio (MIE-37 / MIE-41 / MIE-42).
  */
 export default function AvatarStudioToolbar({
   tool,
@@ -34,6 +37,8 @@ export default function AvatarStudioToolbar({
   onPartTypeChange,
   onUploadImage,
   onDeleteSelected,
+  onScaleSelected,
+  onRotateSelected,
   hasSelection,
   disabled,
 }: AvatarStudioToolbarProps) {
@@ -53,6 +58,11 @@ export default function AvatarStudioToolbar({
             </option>
           ))}
         </select>
+        {/* Studio paints a flat UV sheet that wraps onto the 3D mesh (MIE-41 clarification). */}
+        <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+          Design surface is 2D on purpose — your art wraps onto the 3D avatar. Head is the head mesh texture;
+          Face stays a separate expression overlay.
+        </p>
       </div>
 
       <div>
@@ -77,6 +87,48 @@ export default function AvatarStudioToolbar({
               {btn.label}
             </button>
           ))}
+        </div>
+        <p className="text-[10px] text-slate-500 mt-1">
+          Pick a shape, then tap the canvas to place it. Use Select to drag.
+        </p>
+      </div>
+
+      {/* Transform controls always in the tool panel so they are findable on mobile (MIE-42). */}
+      <div>
+        <p className="text-xs text-slate-400 mb-1">Transform selected</p>
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            onClick={() => onScaleSelected?.(0.1)}
+            disabled={disabled || !hasSelection}
+            className="min-h-[36px] px-2 rounded-lg text-xs bg-slate-800 text-white disabled:opacity-40"
+          >
+            Scale +
+          </button>
+          <button
+            type="button"
+            onClick={() => onScaleSelected?.(-0.1)}
+            disabled={disabled || !hasSelection}
+            className="min-h-[36px] px-2 rounded-lg text-xs bg-slate-800 text-white disabled:opacity-40"
+          >
+            Scale −
+          </button>
+          <button
+            type="button"
+            onClick={() => onRotateSelected?.(15)}
+            disabled={disabled || !hasSelection}
+            className="min-h-[36px] px-2 rounded-lg text-xs bg-slate-800 text-white disabled:opacity-40"
+          >
+            Rotate ↻
+          </button>
+          <button
+            type="button"
+            onClick={() => onRotateSelected?.(-15)}
+            disabled={disabled || !hasSelection}
+            className="min-h-[36px] px-2 rounded-lg text-xs bg-slate-800 text-white disabled:opacity-40"
+          >
+            Rotate ↺
+          </button>
         </div>
       </div>
 
