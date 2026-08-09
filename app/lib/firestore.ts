@@ -52,6 +52,7 @@ import { getGamepassById, VIP_BALL_ID, type GamepassId } from './gamepasses';
 import { getBallTypeById, getBallGiftGemPrice, isBallGiftable } from './ballTypes';
 import {
   createStarterEquippedAvatar,
+  isLoadableAvatarTextureUrl,
   normalizeUserAvatarFields,
   STARTER_OWNED_ITEM_IDS,
 } from './avatarItems';
@@ -1782,6 +1783,21 @@ export async function equipAvatarItem(
 
   const userData = normalizeUserAvatarFields(userDoc.data() as User);
   if (!userData.ownedAvatarItems!.includes(itemId)) throw new Error('Item not owned');
+
+  // Soft-guard: refuse to equip catalog rows with unloadable SVG wear maps (MIE-40).
+  // Face/emote slots don't use body UV maps, so skip the check for those.
+  if (partType !== 'face' && partType !== 'emote') {
+    const catalogItem = await getDoc(doc(db, AVATAR_ITEMS_COLLECTION, itemId));
+    if (catalogItem.exists()) {
+      const data = catalogItem.data() as AvatarItem;
+      const wearUrl = data.textureUrl ?? data.shirtTextureUrl ?? null;
+      if (wearUrl && !isLoadableAvatarTextureUrl(wearUrl)) {
+        throw new Error(
+          'This item uses an unsupported texture format and cannot be equipped. Try creating it again in Avatar Studio.',
+        );
+      }
+    }
+  }
 
   const equipped: EquippedAvatar = {
     ...(userData.equippedAvatar ?? createStarterEquippedAvatar()),

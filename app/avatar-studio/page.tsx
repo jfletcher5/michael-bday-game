@@ -156,9 +156,18 @@ function AvatarStudioEditor() {
 
   const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!project) return;
+    // Capture pointer so drag/move keeps working on iPad when the finger leaves the canvas (MIE-42).
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    setErrorMsg(null);
     const { x, y } = canvasPoint(e.clientX, e.clientY);
 
     if (tool !== 'select') {
+      // Image tool places via file picker — open it if the canvas was tapped (MIE-41).
+      if (tool === 'image') {
+        handleUploadImage();
+        return;
+      }
       const shape = tool === 'square' || tool === 'circle' || tool === 'triangle' || tool === 'star' ? tool : null;
       if (shape) {
         const layer = createShapeLayer(shape);
@@ -171,6 +180,7 @@ function AvatarStudioEditor() {
         });
         setSelectedLayerId(layer.id);
         setTool('select');
+        setStatusMsg('Shape added — drag to move, or use Scale / Rotate in the tools panel.');
       }
       return;
     }
@@ -193,6 +203,7 @@ function AvatarStudioEditor() {
   const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     if (!drag || !canvasRef.current) return;
+    e.preventDefault();
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = AVATAR_STUDIO_TEXTURE_SIZE / rect.width;
     const scaleY = AVATAR_STUDIO_TEXTURE_SIZE / rect.height;
@@ -201,8 +212,13 @@ function AvatarStudioEditor() {
     updateLayer(drag.layerId, { x: drag.originX + dx, y: drag.originY + dy });
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Capture may already be released — ignore.
+    }
   };
 
   const handleNewProject = async () => {
@@ -381,7 +397,10 @@ function AvatarStudioEditor() {
           <main className="flex-1 min-w-0">
             {!project ? (
               <div className="bg-slate-900/80 rounded-xl p-8 text-center border border-slate-700">
-                <p className="text-slate-400 mb-4">Create a new project or open one from the sidebar.</p>
+                <p className="text-white font-medium mb-2">Open a project to start designing</p>
+                <p className="text-slate-400 mb-4 text-sm">
+                  Shape tools, image import, and move/scale/rotate only work after you create or open a project.
+                </p>
                 <button
                   type="button"
                   onClick={handleNewProject}
@@ -392,59 +411,29 @@ function AvatarStudioEditor() {
               </div>
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {/* 2D composition canvas */}
+                {/* 2D composition canvas — flat UV sheet that wraps onto the 3D mesh */}
                 <div className="bg-slate-900/80 rounded-xl p-3 border border-slate-700">
-                  <p className="text-xs text-slate-400 mb-2">Design surface — click to place shapes</p>
+                  <p className="text-xs text-slate-400 mb-2">
+                    2D design surface — tap to place shapes, drag with Select to move
+                  </p>
                   <canvas
                     ref={canvasRef}
                     width={AVATAR_STUDIO_TEXTURE_SIZE}
                     height={AVATAR_STUDIO_TEXTURE_SIZE}
-                    className="w-full max-w-md mx-auto border border-slate-600 rounded-lg cursor-crosshair touch-none"
+                    className="w-full max-w-md mx-auto border border-slate-600 rounded-lg cursor-crosshair touch-none select-none"
+                    style={{ touchAction: 'none' }}
                     onPointerDown={handleCanvasPointerDown}
                     onPointerMove={handleCanvasPointerMove}
                     onPointerUp={handleCanvasPointerUp}
-                    onPointerLeave={handleCanvasPointerUp}
+                    onPointerCancel={handleCanvasPointerUp}
                   />
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
                     className="hidden"
                     onChange={handleFileChange}
                   />
-
-                  {selectedLayerId && (
-                    <div className="flex flex-wrap gap-2 mt-3 justify-center">
-                      <button
-                        type="button"
-                        onClick={() => handleScaleSelected(0.1)}
-                        className="px-3 py-1 text-xs bg-slate-700 rounded-lg"
-                      >
-                        Scale +
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleScaleSelected(-0.1)}
-                        className="px-3 py-1 text-xs bg-slate-700 rounded-lg"
-                      >
-                        Scale −
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRotateSelected(15)}
-                        className="px-3 py-1 text-xs bg-slate-700 rounded-lg"
-                      >
-                        Rotate ↻
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRotateSelected(-15)}
-                        className="px-3 py-1 text-xs bg-slate-700 rounded-lg"
-                      >
-                        Rotate ↺
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 {/* 3D preview */}
@@ -506,6 +495,8 @@ function AvatarStudioEditor() {
                 onPartTypeChange={handlePartTypeChange}
                 onUploadImage={handleUploadImage}
                 onDeleteSelected={handleDeleteSelected}
+                onScaleSelected={handleScaleSelected}
+                onRotateSelected={handleRotateSelected}
                 hasSelection={!!selectedLayerId}
                 disabled={saving || publishing}
               />

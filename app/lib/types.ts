@@ -130,7 +130,8 @@ export type AvatarPartType =
   | 'sock'
   | 'emote'
   | 'accessory'
-  | 'face'; // 2D expression overlay on 3D head (MIE-18)
+  | 'face' // 2D expression overlay on 3D head (MIE-18)
+  | 'head'; // 3D head wear / skin texture slot (MIE-41)
 
 /** Where an avatar catalog row originated — UGC items are Gemini-generated textures (MIE-18). */
 export type AvatarItemSource = 'system' | 'creator' | 'ugc' | 'studio';

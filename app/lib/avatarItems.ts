@@ -17,6 +17,7 @@ export const AVATAR_PART_TYPES: AvatarPartType[] = [
   'face',
   'emote',
   'accessory',
+  'head',
 ];
 
 export const AVATAR_PART_LABELS: Record<AvatarPartType, string> = {
@@ -31,12 +32,13 @@ export const AVATAR_PART_LABELS: Record<AvatarPartType, string> = {
   face: 'Face',
   emote: 'Emotes',
   accessory: 'Accessory',
+  head: 'Head',
 };
 
 /** Default free skin tint — white per Michael (MIE-18). */
 export const DEFAULT_SKIN_COLOR = '#FFFFFF';
 
-/** UGC body slots players can describe to Gemini (no emote/face via texture gen). */
+/** UGC / Studio body slots that accept a wear texture (no emote/face via texture gen). */
 export const UGC_TEXTURE_PART_TYPES: AvatarPartType[] = [
   'shirt',
   'hair',
@@ -47,7 +49,23 @@ export const UGC_TEXTURE_PART_TYPES: AvatarPartType[] = [
   'foot',
   'sock',
   'accessory',
+  'head',
 ];
+
+/**
+ * True when Three.js TextureLoader is likely to load this URL safely (MIE-40).
+ * Remote/data SVG wear maps (Gemini fallback) crash many browsers — treat as unloadable.
+ * Local `/…svg` face overlays remain allowed.
+ */
+export function isLoadableAvatarTextureUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  // SVG data URLs / remote SVGs crash Three.js TextureLoader on many browsers (MIE-40)
+  if (url.startsWith('data:image/svg')) return false;
+  if (url.startsWith('data:image/')) return true; // studio PNG/JPEG data URLs OK
+  const isRemote = url.startsWith('http://') || url.startsWith('https://');
+  if (isRemote && /\.svg(\?|#|$)/i.test(url)) return false;
+  return true;
+}
 
 /** How long an emote animation plays (MIE-17). */
 export const EMOTE_DURATION_MS = 3000;
@@ -68,6 +86,7 @@ export function createEmptyEquippedAvatar(): EquippedAvatar {
     face: null,
     emote: null,
     accessory: null,
+    head: null,
   };
 }
 
@@ -174,6 +193,7 @@ export function createStarterEquippedAvatar(): EquippedAvatar {
     face: 'starter-face-smile',
     emote: 'starter-emote-wave',
     accessory: null,
+    head: null,
   };
 }
 
@@ -240,13 +260,21 @@ export function getAvatarPartTextureUrl(item: AvatarItem | undefined): string | 
   if (!item) return null;
   // Face/emote slots use overlay or rig animation, not body-part UV maps
   if (item.partType === 'face' || item.partType === 'emote') return null;
-  return item.textureUrl ?? item.shirtTextureUrl ?? null;
+  const url = item.textureUrl ?? item.shirtTextureUrl ?? null;
+  // Skip unloadable wear maps so equipped UGC never bricks the page (MIE-40)
+  return isLoadableAvatarTextureUrl(url) ? url : null;
 }
 
 /** Face slot uses a 2D overlay composited on the 3D head (MIE-18). */
 export function getAvatarFaceOverlayUrl(item: AvatarItem | undefined): string | null {
   if (!item || item.partType !== 'face') return null;
-  return item.faceOverlayUrl ?? item.textureUrl ?? item.previewImageUrl ?? null;
+  const url = item.faceOverlayUrl ?? item.textureUrl ?? item.previewImageUrl ?? null;
+  // Local starter SVGs are OK; remote SVG overlays are skipped (MIE-40)
+  if (!url) return null;
+  if (url.startsWith('/') || url.startsWith('data:image/png') || url.startsWith('data:image/jpeg')) {
+    return url;
+  }
+  return isLoadableAvatarTextureUrl(url) ? url : null;
 }
 
 /** Whether this emote should drive the 3D rig animation (MIE-18). */
