@@ -34,13 +34,13 @@ export const GAMES: GameDefinition[] = [
     status: 'live',
   },
   {
-    id: 'game-two',
-    title: 'Coming Soon',
-    tagline: 'Something new is in the works.',
-    href: '#',
-    emoji: '✨',
-    gradient: 'from-slate-500 to-slate-700',
-    status: 'coming-soon',
+    id: 'find-the-button',
+    title: 'Find the Button',
+    tagline: 'First-person block world. Hunt down the button.',
+    href: '/find-the-button',
+    emoji: '🔴',
+    gradient: 'from-sky-600 to-indigo-700',
+    status: 'live',
   },
 ];
 
