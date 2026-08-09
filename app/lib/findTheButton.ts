@@ -17,9 +17,16 @@ export const enum Block {
   Metal = 4,
   Lamp = 5,
   Button = 6,
+  Brick = 7,
+  Plaster = 8,
+  Planks = 9,
+  Tile = 10,
 }
 
-/** Face colors used by the instanced renderer, indexed by block id. */
+/**
+ * Tint applied on top of each block's texture. Kept near-white for textured
+ * blocks so the painted detail shows through unmodified.
+ */
 export const BLOCK_COLORS: Record<number, string> = {
   [Block.Stone]: '#8d8d97',
   [Block.Grass]: '#5aa459',
@@ -27,7 +34,16 @@ export const BLOCK_COLORS: Record<number, string> = {
   [Block.Metal]: '#6b7a8f',
   [Block.Lamp]: '#ffe9a3',
   [Block.Button]: '#e2483d',
+  [Block.Brick]: '#ffffff',
+  [Block.Plaster]: '#ffffff',
+  [Block.Planks]: '#ffffff',
+  [Block.Tile]: '#ffffff',
 };
+
+/** Blocks that should render at full brightness rather than take lighting. */
+export function isEmissiveBlock(block: number): boolean {
+  return block === Block.Lamp;
+}
 
 /** Blocks that do not stop movement. */
 export function isSolidBlock(block: number): boolean {
@@ -128,6 +144,12 @@ export interface ConceptScene {
   world: VoxelWorld;
   /** Player feet position at spawn. */
   spawn: Vec3;
+  /**
+   * Camera heading at spawn, in radians. Yaw 0 looks down -Z (three.js
+   * convention), so PI faces +Z. Set this so the player starts looking into the
+   * space instead of at the wall behind them.
+   */
+  spawnYaw: number;
   /** Block coordinate of the goal button. */
   button: Vec3;
 }
@@ -137,6 +159,67 @@ export interface Concept {
   name: string;
   description: string;
   build: () => ConceptScene;
+}
+
+/**
+ * Concept — a furnished interior: four rooms off a cross-shaped partition,
+ * connected by doorways. Textured brick outer walls, plaster partitions, plank
+ * floor, tiled ceiling. The button is mounted on a back wall behind crates.
+ */
+function buildInterior(): ConceptScene {
+  const W = 28;
+  const H = 7;
+  const D = 28;
+  const world = new VoxelWorld(W, H, D);
+
+  const wallTop = H - 2; // walls run y=1..5, ceiling sits at y=6
+
+  world.fill(0, 0, 0, W - 1, 0, D - 1, Block.Planks);
+  world.fill(0, H - 1, 0, W - 1, H - 1, D - 1, Block.Tile);
+
+  // Outer shell.
+  world.fill(0, 1, 0, W - 1, wallTop, 0, Block.Brick);
+  world.fill(0, 1, D - 1, W - 1, wallTop, D - 1, Block.Brick);
+  world.fill(0, 1, 0, 0, wallTop, D - 1, Block.Brick);
+  world.fill(W - 1, 1, 0, W - 1, wallTop, D - 1, Block.Brick);
+
+  // Cross partition splitting the floor into four rooms.
+  world.fill(13, 1, 1, 13, wallTop, D - 2, Block.Plaster);
+  world.fill(1, 1, 13, W - 2, wallTop, 13, Block.Plaster);
+
+  // Doorways — two blocks wide, three high, so they read as openings not holes.
+  world.fill(13, 1, 5, 13, 3, 6, Block.Air);
+  world.fill(13, 1, 20, 13, 3, 21, Block.Air);
+  world.fill(5, 1, 13, 6, 3, 13, Block.Air);
+  world.fill(20, 1, 13, 21, 3, 13, Block.Air);
+
+  // Ceiling lamps, one per room.
+  for (const [lx, lz] of [
+    [6, 6],
+    [20, 6],
+    [6, 20],
+    [20, 20],
+  ]) {
+    world.set(lx, wallTop, lz, Block.Lamp);
+  }
+
+  // Furniture: stacked crates and a metal bench, giving each room a silhouette
+  // and something to break line of sight.
+  world.fill(3, 1, 8, 4, 2, 9, Block.Wood);
+  world.fill(9, 1, 3, 10, 1, 4, Block.Wood);
+  world.fill(18, 1, 4, 20, 1, 4, Block.Metal);
+  world.fill(23, 1, 8, 24, 2, 8, Block.Wood);
+  world.fill(4, 1, 17, 5, 1, 19, Block.Metal);
+  world.fill(8, 1, 23, 9, 2, 24, Block.Wood);
+
+  // Back-right room: crates screen the button from the doorway.
+  world.fill(21, 1, 24, 22, 2, 26, Block.Wood);
+  world.fill(25, 1, 22, 26, 2, 22, Block.Wood);
+
+  const button = { x: 24, y: 2, z: 26 };
+  world.set(button.x, button.y, button.z, Block.Button);
+
+  return { world, spawn: { x: 3.5, y: 1, z: 3.5 }, spawnYaw: Math.PI, button };
 }
 
 /** Concept A — one open room, button tucked behind pillars. */
@@ -161,7 +244,7 @@ function buildRoom(): ConceptScene {
 
   const button = { x: 22, y: 2, z: 20 };
   world.set(button.x, button.y, button.z, Block.Button);
-  return { world, spawn: { x: 3.5, y: 1, z: 3.5 }, button };
+  return { world, spawn: { x: 3.5, y: 1, z: 3.5 }, spawnYaw: Math.PI, button };
 }
 
 /** Concept B — grid maze; button sits in a dead end. */
@@ -188,7 +271,7 @@ function buildMaze(): ConceptScene {
   const button = { x: 23, y: 2, z: 21 };
   world.fill(21, 1, 21, 23, 3, 21, Block.Air);
   world.set(button.x, button.y, button.z, Block.Button);
-  return { world, spawn: { x: 1.5, y: 1, z: 1.5 }, button };
+  return { world, spawn: { x: 1.5, y: 1, z: 1.5 }, spawnYaw: Math.PI, button };
 }
 
 /** Concept C — stacked platforms; button requires climbing. */
@@ -218,10 +301,16 @@ function buildPlatforms(): ConceptScene {
   world.set(button.x, button.y, button.z, Block.Button);
   // Spawn on open floor, away from the steps at x=1..3 — spawning inside them
   // wedges the player in a solid block.
-  return { world, spawn: { x: 12.5, y: 1, z: 1.5 }, button };
+  return { world, spawn: { x: 12.5, y: 1, z: 1.5 }, spawnYaw: Math.PI, button };
 }
 
 export const CONCEPTS: Concept[] = [
+  {
+    id: 'interior',
+    name: 'Interior',
+    description: 'Four textured rooms off a central partition. The button hides behind crates.',
+    build: buildInterior,
+  },
   {
     id: 'room',
     name: 'Open Room',

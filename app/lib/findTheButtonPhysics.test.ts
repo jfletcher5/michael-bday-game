@@ -67,6 +67,40 @@ test('a grounded player jumps and an airborne player cannot', () => {
   assert.ok(airborne.velocity.y < player.velocity.y, 'no second jump while airborne');
 });
 
+// Direction is easy to get subtly wrong (a flipped sign only shows up at some
+// yaws), so pin all four inputs at yaw 0, where three.js looks down -Z.
+test('at yaw 0, movement goes the way the key points', () => {
+  const world = flatWorld();
+  const start = createPlayer({ x: 8, y: 1, z: 8 });
+  const move = (forward: number, right: number) =>
+    stepPlayer(world, start, { forward, right, jump: false }, 0, 1 / 60).velocity;
+
+  const fwd = move(1, 0);
+  assert.ok(fwd.z < -1, `forward goes -Z, got z=${fwd.z}`);
+  assert.ok(Math.abs(fwd.x) < 1e-9, `forward does not drift on X, got x=${fwd.x}`);
+
+  const back = move(-1, 0);
+  assert.ok(back.z > 1, `back goes +Z, got z=${back.z}`);
+
+  const right = move(0, 1);
+  assert.ok(right.x > 1, `right goes +X, got x=${right.x}`);
+  assert.ok(Math.abs(right.z) < 1e-9, `right does not drift on Z, got z=${right.z}`);
+
+  const left = move(0, -1);
+  assert.ok(left.x < -1, `left goes -X, got x=${left.x}`);
+});
+
+test('turning 90 degrees rotates the movement frame with the camera', () => {
+  const world = flatWorld();
+  const start = createPlayer({ x: 8, y: 1, z: 8 });
+
+  // Yaw +PI/2 turns the camera to look down -X, so forward must now go -X.
+  const v = stepPlayer(world, start, { forward: 1, right: 0, jump: false }, Math.PI / 2, 1 / 60)
+    .velocity;
+  assert.ok(v.x < -1, `forward after a left turn goes -X, got x=${v.x}`);
+  assert.ok(Math.abs(v.z) < 1e-6, `forward after a left turn does not drift on Z, got z=${v.z}`);
+});
+
 test('diagonal input is not faster than cardinal input', () => {
   const world = flatWorld();
   const start = createPlayer({ x: 8, y: 1, z: 8 });

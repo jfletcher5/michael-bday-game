@@ -122,8 +122,8 @@ export default function FindTheButtonPage() {
       {/* Bottom: controls hint */}
       {!found && (
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/45 backdrop-blur-md px-5 py-2.5 ring-1 ring-white/20 text-white/85 text-xs sm:text-sm text-center">
-          Click to look around · <b>WASD</b> move · <b>Space</b> jump ·{' '}
-          <b>Click / E</b> press the button · <b>Esc</b> release cursor
+          Click to look around · <b>Arrow keys</b> or <b>WASD</b> move ·{' '}
+          <b>Space</b> jump · <b>Click / E</b> press the button · <b>Esc</b> release cursor
         </div>
       )}
 

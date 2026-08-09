@@ -81,11 +81,14 @@ export function stepPlayer(
 ): PlayerState {
   const step = Math.min(dt, MAX_STEP);
 
-  // Forward is -Z rotated by yaw; right is +X rotated by yaw.
+  // three.js cameras look down -Z at yaw 0, so at that yaw forward must produce
+  // -Z and right must produce +X:
+  //   forward vector = (-sin yaw, 0, -cos yaw)
+  //   right   vector = ( cos yaw, 0, -sin yaw)
   const sin = Math.sin(yaw);
   const cos = Math.cos(yaw);
   let dx = input.right * cos - input.forward * sin;
-  let dz = input.right * sin + input.forward * cos;
+  let dz = -(input.right * sin + input.forward * cos);
 
   // Normalise so diagonal input is not faster than cardinal input.
   const len = Math.hypot(dx, dz);
