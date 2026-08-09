@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 import { CONCEPTS, getConcept, SpawnPoint } from '../lib/findTheButton';
+import Minimap, { Pose } from './Minimap';
 import { DeathCause, DEATH_MESSAGES } from '../lib/findTheButtonHazards';
 import { NavPill } from '../components/ui';
 
@@ -41,6 +42,21 @@ export default function FindTheButtonPage() {
   const concept = getConcept(conceptId);
   // Rebuild the world only when the concept changes — not on every render.
   const scene = useMemo(() => concept.build(), [concept]);
+
+  /** Player pose, written by the 3D frame loop and read by the minimap. */
+  const poseRef = useRef<Pose>({ x: 0, y: 0, z: 0, yaw: 0 });
+
+  // Seed the pose from the spawn so the map draws the right floor before the
+  // first frame lands — otherwise it slices y=0 and renders an empty basement.
+  useEffect(() => {
+    const spawn = scene.spawns[0];
+    poseRef.current = {
+      x: spawn.position.x,
+      y: spawn.position.y,
+      z: spawn.position.z,
+      yaw: spawn.yaw,
+    };
+  }, [scene]);
 
   const pressRef = useRef<() => void>(() => {});
   const registerPress = useCallback((fn: () => void) => {
@@ -95,6 +111,7 @@ export default function FindTheButtonPage() {
         */}
         <FindTheButtonCanvas
           scene={scene}
+          poseRef={poseRef}
           onTargetChange={setTargeting}
           onFound={handleFound}
           onDeath={handleDeath}
@@ -163,6 +180,13 @@ export default function FindTheButtonPage() {
             </p>
           </div>
         </>
+      )}
+
+      {/* Bottom-left: top-down map of the level */}
+      {!found && (
+        <div className="absolute bottom-4 left-3">
+          <Minimap scene={scene} poseRef={poseRef} />
+        </div>
       )}
 
       {/* Bottom: controls hint */}

@@ -28,6 +28,7 @@ import {
   checkDeath,
 } from '../lib/findTheButtonHazards';
 import { createBlockTextures } from '../lib/findTheButtonTextures';
+import { Pose } from './Minimap';
 import {
   PlayerState,
   MoveInput,
@@ -234,6 +235,7 @@ function Lasers({ lasers }: { lasers: LaserEmitter[] }) {
 function Player({
   scene,
   trapDoorStatesRef,
+  poseRef,
   onTargetChange,
   onPress,
   onDeath,
@@ -241,6 +243,7 @@ function Player({
 }: {
   scene: ConceptScene;
   trapDoorStatesRef: React.RefObject<TrapDoorState[]>;
+  poseRef: React.RefObject<Pose>;
   onTargetChange: (targetingButton: boolean) => void;
   onPress: () => void;
   onDeath: (cause: DeathCause, nextSpawn: SpawnPoint) => void;
@@ -319,6 +322,9 @@ function Player({
     const { position } = playerRef.current;
     camera.position.set(position.x, position.y + EYE_HEIGHT, position.z);
 
+    // Publish the pose for the minimap, which lives outside the R3F tree.
+    poseRef.current = { x: position.x, y: position.y, z: position.z, yaw: euler.y };
+
     // Trapdoors mutate the world (open tiles become Air), so they must run
     // before the death check — otherwise the player is judged against a floor
     // that has already dropped away.
@@ -364,12 +370,14 @@ function Player({
 
 export default function FindTheButtonCanvas({
   scene,
+  poseRef,
   onTargetChange,
   onFound,
   onDeath,
   registerPress,
 }: {
   scene: ConceptScene;
+  poseRef: React.RefObject<Pose>;
   onTargetChange: (targetingButton: boolean) => void;
   onFound: () => void;
   onDeath: (cause: DeathCause, nextSpawn: SpawnPoint) => void;
@@ -421,6 +429,10 @@ export default function FindTheButtonCanvas({
   return (
     <div ref={hostRef} className="h-full w-full">
       <Canvas
+        // Render continuously. On demand the simulation would only advance when
+        // something else triggered a React render, making movement stutter or
+        // stall entirely.
+        frameloop="always"
         camera={{ fov: 75, near: 0.1, far: 200 }}
         onCreated={({ gl }) => gl.setClearColor('#1b1f26')}
       >
@@ -439,6 +451,7 @@ export default function FindTheButtonCanvas({
         <Player
           scene={scene}
           trapDoorStatesRef={trapDoorStatesRef}
+          poseRef={poseRef}
           onTargetChange={onTargetChange}
           onPress={onFound}
           onDeath={onDeath}
