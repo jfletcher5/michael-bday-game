@@ -15,6 +15,7 @@ import {
   normalizeHexColor,
   withSettingsCode,
 } from '../lib/playerSettings';
+import { DEFAULT_GAME_HREF } from '../lib/games';
 import {
   formatDisplayName,
   validateDisplayName,
@@ -324,7 +325,7 @@ export default function SettingsPage() {
 
         <button
           type="button"
-          onClick={() => router.push('/')}
+          onClick={() => router.push(DEFAULT_GAME_HREF)}
           className="w-full min-h-[52px] py-3 px-6 rounded-xl bg-gray-100 text-gray-800 font-semibold hover:bg-gray-200 active:scale-95 transition-all"
         >
           Back to Menu

@@ -17,6 +17,7 @@ import ControlsComponent from './components/Controls';
 import TouchControls from './components/TouchControls';
 import GameCanvas from './components/GameCanvas';
 import { usePlayerSettings } from '../components/PlayerSettingsProvider';
+import { DEFAULT_GAME_HREF } from '../lib/games';
 
 // Stable empty arrays prevent GameCanvas re-init loops when HUD state updates (~250ms).
 const EMPTY_CUSTOM_PLATFORMS: [] = [];
@@ -435,7 +436,7 @@ function Game() {
 
   // Return to main menu
   const handleReturnToMenu = () => {
-    router.push('/');
+    router.push(DEFAULT_GAME_HREF);
   };
 
   // Restart game - also reinitialize session for new game

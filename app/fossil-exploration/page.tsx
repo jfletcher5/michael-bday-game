@@ -28,6 +28,7 @@ import { usePlayerSettings } from '../components/PlayerSettingsProvider';
 import ControlsComponent from '../game/components/Controls';
 import TouchControls from '../game/components/TouchControls';
 import FossilExplorationCanvas from './FossilExplorationCanvas';
+import { DEFAULT_GAME_HREF } from '../lib/games';
 
 type RunState = 'checking' | 'playing' | 'fallen' | 'blocked';
 
@@ -154,7 +155,7 @@ export default function FossilExplorationPage() {
           </p>
           <button
             type="button"
-            onClick={() => router.push('/')}
+            onClick={() => router.push(DEFAULT_GAME_HREF)}
             className="w-full min-h-[48px] rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
           >
             Back to Menu
@@ -218,7 +219,7 @@ export default function FossilExplorationPage() {
         </div>
         <button
           type="button"
-          onClick={() => router.push('/')}
+          onClick={() => router.push(DEFAULT_GAME_HREF)}
           className="pointer-events-auto bg-white/90 text-gray-800 font-medium min-h-[40px] px-3 rounded-lg text-sm hover:bg-white"
         >
           Menu
@@ -267,7 +268,7 @@ export default function FossilExplorationPage() {
               </button>
               <button
                 type="button"
-                onClick={() => router.push('/')}
+                onClick={() => router.push(DEFAULT_GAME_HREF)}
                 className="w-full min-h-[44px] rounded-xl bg-gray-100 text-gray-800 font-medium"
               >
                 Back to Menu
