@@ -9,6 +9,7 @@ import { getAvatarUrl } from '../lib/avatars';
 import VerifiedBadge from '../components/VerifiedBadge';
 import MenuBackground from '../components/MenuBackground';
 import { PageHeader } from '../components/ui';
+import { DEFAULT_GAME_HREF } from '../lib/games';
 
 // One row per player — show the top 100 best scores (MIE-22)
 const MAX_SCORES = 100;
@@ -47,7 +48,7 @@ export default function Leaderboard() {
   }, []);
 
   const handleBackToMenu = () => {
-    router.push('/');
+    router.push(DEFAULT_GAME_HREF);
   };
 
   const getRankDisplay = (rank: number): string => {

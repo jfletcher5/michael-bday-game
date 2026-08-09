@@ -1,0 +1,286 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import { getCurrentUser, setCurrentUser as persistCurrentUser } from '../lib/auth';
+import {
+  ensureUserAvatarMigration,
+  getUserData,
+  subscribeToAvatarItems,
+  subscribeToActiveEvents,
+} from '../lib/firestore';
+import { User, AvatarItem, GameEvent } from '../lib/types';
+import { getAvatarUrl } from '../lib/avatars';
+import { mergeAvatarCatalog, getEquippedAvatarItems, DEFAULT_SKIN_COLOR } from '../lib/avatarItems';
+import Avatar3DViewer from '../components/Avatar3DViewer';
+import { getCurrentSeasonConfig, getCurrentSeasonId, getDaysRemaining } from '../lib/seasons';
+import { formatPrice } from '../lib/ballTypes';
+import { isFossilEventActive } from '../lib/gameEvents';
+import TopNav from '../components/TopNav';
+import MenuBackground from '../components/MenuBackground';
+
+/**
+ * Main Menu Page
+ * Allows user to select avatar and enter initials, start game, or view leaderboard
+ */
+export default function Home() {
+  const router = useRouter();
+  const [selectedAvatarId, setSelectedAvatarId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [avatarCatalog, setAvatarCatalog] = useState<AvatarItem[]>([]);
+  // Fossil Exploration button is event-gated (MIE-31).
+  const [activeEvents, setActiveEvents] = useState<GameEvent[]>([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // Load player identity and user data on mount
+  useEffect(() => {
+    let cancelled = false;
+    const user = getCurrentUser();
+
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    // Defer cached localStorage hydration so React's effect lint does not flag a synchronous state cascade.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setCurrentUser(user);
+      setSelectedAvatarId(user.avatarId);
+      setIsLoading(false);
+    });
+
+    // ...then refresh from Firestore so stats stay in sync across devices/domains.
+    getUserData(user.username).then((fresh) => {
+      if (!cancelled && fresh) {
+        setCurrentUser(fresh);
+        persistCurrentUser(fresh);
+      }
+    });
+
+    // Migrate legacy users to starter avatar items (MIE-12)
+    ensureUserAvatarMigration(user.username).then((migrated) => {
+      if (!cancelled) {
+        setCurrentUser(migrated);
+        persistCurrentUser(migrated);
+      }
+    });
+
+    const unsubAvatars = subscribeToAvatarItems((items) => {
+      if (!cancelled) setAvatarCatalog(mergeAvatarCatalog(items));
+    });
+
+    const unsubEvents = subscribeToActiveEvents((evts) => {
+      if (!cancelled) setActiveEvents(evts);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubAvatars();
+      unsubEvents();
+    };
+  }, [router]);
+
+  // Tick so the Fossil Exploration button appears/disappears when the event window changes.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  
+  // Handle logout - redirect to login
+  const handleLogout = () => {
+    setCurrentUser(null);
+    router.push('/login');
+  };
+
+  const handleOpenAvatars = () => router.push('/avatars');
+
+  // Check if player can start game (must be logged in and have avatar selected)
+  const canStartGame = currentUser !== null && selectedAvatarId !== null;
+
+  // Start game
+  const handleStartGame = () => {
+    if (canStartGame && currentUser) {
+      // User is logged in, game will use their user data
+      router.push('/game?mode=infinite');
+    }
+  };
+
+  // Event-only Fossil Exploration entry (MIE-31) — crafting deferred.
+  const fossilLive = isFossilEventActive(activeEvents, nowMs);
+  const handleFossilExploration = () => {
+    if (!canStartGame || !fossilLive) return;
+    router.push('/fossil-exploration');
+  };
+
+  // Navigate to leaderboard
+  const handleViewLeaderboard = () => {
+    router.push('/leaderboard');
+  };
+
+  const equippedLayers = currentUser
+    ? getEquippedAvatarItems(currentUser, avatarCatalog)
+    : {};
+
+  if (isLoading) {
+    return null; // Prevent flash of empty state
+  }
+
+  return (
+    <MenuBackground className="min-h-screen flex flex-col items-center justify-center md:justify-center p-4 py-20 sm:py-24">
+      {/* Top Navigation */}
+      <TopNav user={currentUser} onLogout={handleLogout} transparent />
+      
+      <main className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-6 sm:p-8 w-full max-w-md md:max-w-4xl mx-2 sm:mx-4 my-auto animate-page-in">
+        {/* Game Title */}
+        <div className="text-center mb-5 sm:mb-7">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight mb-1 sm:mb-2">
+            Platform Drop
+          </h1>
+          <p className="text-sm sm:text-base text-gray-600">
+            Survive the rising platforms!
+          </p>
+        </div>
+
+        {/* Two Column Layout: Character Select (Left) | Everything Else (Right) */}
+        <div className="flex flex-col md:flex-row md:gap-8">
+          {/* LEFT COLUMN: Avatar preview → opens avatar shop (MIE-12) */}
+          <div className="mb-4 sm:mb-6 md:mb-0 md:w-1/2 flex flex-col items-center">
+            <label className="block text-sm font-medium text-gray-700 mb-2 sm:mb-3 w-full text-center md:text-left">
+              Your Avatar
+            </label>
+            <button
+              type="button"
+              onClick={handleOpenAvatars}
+              className="group rounded-2xl p-3 bg-purple-50 ring-2 ring-purple-200 hover:ring-purple-400 hover:-translate-y-1 hover:shadow-glow-sm transition-all duration-200"
+              aria-label="Open avatar shop"
+            >
+              <Avatar3DViewer
+                layers={equippedLayers}
+                skinColor={currentUser?.skinColor ?? DEFAULT_SKIN_COLOR}
+                enableRotation
+                className="pointer-events-auto"
+              />
+              <p className="text-xs text-purple-700 font-medium mt-2 group-hover:underline">
+                Customize Avatar →
+              </p>
+            </button>
+            {currentUser && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                <span>Leaderboard:</span>
+                <Image
+                  src={getAvatarUrl(currentUser.avatarId)}
+                  alt=""
+                  width={32}
+                  height={32}
+                  className="rounded-lg"
+                  unoptimized
+                />
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: Username Display, Buttons, and Instructions */}
+          <div className="md:w-1/2 flex flex-col">
+            {/* Username Display (Read-only) */}
+            {currentUser && (
+              <div className="mb-6">
+                <label 
+                  className="block text-sm font-medium text-gray-700 mb-2"
+                >
+                  Username
+                </label>
+                <div className="w-full px-4 py-3 md:py-4 bg-gray-100 border border-gray-300 rounded-lg text-center text-xl md:text-2xl font-bold tracking-widest uppercase text-gray-700">
+                  {currentUser.username}
+                </div>
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  Logged in as {currentUser.username}
+                </p>
+              </div>
+            )}
+
+            {/* Season Badge */}
+            {(() => {
+              const seasonConfig = getCurrentSeasonConfig();
+              if (!seasonConfig) return null;
+              const currentSeasonId = getCurrentSeasonId();
+              const seasonMeters = currentUser?.seasonData?.seasonId === currentSeasonId
+                ? currentUser.seasonData.meters
+                : 0;
+              const daysLeft = getDaysRemaining(currentSeasonId);
+              return (
+                <button
+                  onClick={() => router.push(`/season/${currentSeasonId}`)}
+                  className="w-full mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-3 hover:-translate-y-0.5 hover:shadow-glow-sm transition-all duration-200 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{seasonConfig.emoji}</span>
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{seasonConfig.displayName} Season</p>
+                        <p className="text-xs text-gray-500">{formatPrice(seasonMeters)}m this season</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-purple-600 font-medium">{daysLeft}d left</p>
+                      <p className="text-xs text-gray-400">View →</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })()}
+
+            {/* Action Buttons */}
+            <div className="space-y-3 mb-4 sm:mb-6">
+              <button
+                onClick={handleStartGame}
+                disabled={!canStartGame}
+                className={`w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl transition-all transform shadow-lg text-base ${
+                  canStartGame
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-700 hover:to-pink-700 hover:scale-[1.02] active:scale-95'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {canStartGame ? '▶  Start Game' : 'Loading…'}
+              </button>
+
+              {/* Shown only while Fossil Event is live (MIE-31). */}
+              {fossilLive && (
+                <button
+                  type="button"
+                  onClick={handleFossilExploration}
+                  disabled={!canStartGame}
+                  className="w-full font-semibold min-h-[52px] py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-lime-600 text-white hover:from-emerald-700 hover:to-lime-700 hover:scale-[1.02] active:scale-95 transition-[transform,background-color] duration-200 shadow-lg text-base disabled:opacity-50"
+                >
+                  🦴  Fossil Exploration
+                </button>
+              )}
+
+              <button
+                onClick={handleViewLeaderboard}
+                className="w-full bg-gray-100 text-gray-800 font-semibold min-h-[52px] py-3 px-6 rounded-xl hover:bg-gray-200 transition-[transform,background-color] duration-200 transform hover:scale-[1.02] active:scale-95 text-base"
+              >
+                🏆  View Leaderboard
+              </button>
+            </div>
+
+            {/* Instructions - hidden on very small screens */}
+            <div className="pt-3 sm:pt-4 border-t border-gray-200 hidden sm:block">
+              <h2 className="text-sm font-semibold text-gray-700 mb-2">
+                How to Play:
+              </h2>
+              <ul className="text-xs text-gray-600 space-y-1">
+                <li>• Use left/right arrow keys to move</li>
+                <li>• Press up arrow to jump over gaps</li>
+                <li>• Land on platforms scrolling up from below</li>
+                <li>• Don&apos;t fall off the screen!</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </main>
+    </MenuBackground>
+  );
+}

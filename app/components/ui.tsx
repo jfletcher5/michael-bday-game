@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { DEFAULT_GAME_HREF } from '../lib/games';
 
 /**
  * Shared presentational UI kit for all menu/non-game pages.
@@ -96,7 +97,7 @@ export function PageHeader({
   const router = useRouter();
   return (
     <div className={`flex items-center justify-between gap-3 mb-5 sm:mb-6 ${className}`}>
-      <NavPill onClick={onBack ?? (() => router.push('/'))} ariaLabel="Back to menu">
+      <NavPill onClick={onBack ?? (() => router.push(DEFAULT_GAME_HREF))} ariaLabel="Back to menu">
         <span aria-hidden className="text-base leading-none">←</span>
         <span>{backLabel}</span>
       </NavPill>

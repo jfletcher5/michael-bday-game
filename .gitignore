@@ -45,6 +45,9 @@ next-env.d.ts
 .cursor/*
 !.cursor/environment.json
 
+# claude code
+.claude/
+
 # firebase
 .firebase/
 firebase-debug.log

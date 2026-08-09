@@ -17,6 +17,7 @@ import {
 import { formatPrice } from '../../lib/ballTypes';
 import MenuBackground from '../../components/MenuBackground';
 import { PageHeader, PageHero, StatPill, Alert } from '../../components/ui';
+import { DEFAULT_GAME_HREF } from '../../lib/games';
 
 export default function SeasonClient() {
   const router = useRouter();
@@ -92,7 +93,7 @@ export default function SeasonClient() {
         <div className="bg-white rounded-3xl shadow-glow ring-1 ring-black/5 p-8 max-w-md w-full text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-4">No Active Season</h1>
           <p className="text-gray-600 mb-6">There is no season configured for this month.</p>
-          <button onClick={() => router.push('/')} className="bg-gray-200 text-gray-800 font-semibold py-2 px-6 rounded-lg hover:bg-gray-300 transition-all">
+          <button onClick={() => router.push(DEFAULT_GAME_HREF)} className="bg-gray-200 text-gray-800 font-semibold py-2 px-6 rounded-lg hover:bg-gray-300 transition-all">
             Back to Menu
           </button>
         </div>
@@ -146,7 +147,7 @@ export default function SeasonClient() {
           </div>
 
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push(DEFAULT_GAME_HREF)}
             className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold min-h-[48px] py-3 px-6 rounded-lg hover:scale-105 transition-all shadow-lg"
           >
             Back to Menu
