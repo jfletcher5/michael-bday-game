@@ -21,6 +21,23 @@ export const enum Block {
   Plaster = 8,
   Planks = 9,
   Tile = 10,
+  Lava = 11,
+  Spikes = 12,
+  TrapDoor = 13,
+  Emitter = 14,
+}
+
+/** Blocks that kill on contact. */
+export function isDeadlyBlock(block: number): boolean {
+  return block === Block.Lava || block === Block.Spikes;
+}
+
+/**
+ * Trapdoor tiles are rendered separately from the static block mesh because
+ * they open and close at runtime, so the static mesh must skip them.
+ */
+export function isDynamicBlock(block: number): boolean {
+  return block === Block.TrapDoor;
 }
 
 /**
@@ -38,11 +55,15 @@ export const BLOCK_COLORS: Record<number, string> = {
   [Block.Plaster]: '#ffffff',
   [Block.Planks]: '#ffffff',
   [Block.Tile]: '#ffffff',
+  [Block.Lava]: '#ffffff',
+  [Block.Spikes]: '#ffffff',
+  [Block.TrapDoor]: '#ffffff',
+  [Block.Emitter]: '#ffffff',
 };
 
 /** Blocks that should render at full brightness rather than take lighting. */
 export function isEmissiveBlock(block: number): boolean {
-  return block === Block.Lamp;
+  return block === Block.Lamp || block === Block.Lava;
 }
 
 /** Blocks that do not stop movement. */
@@ -79,9 +100,13 @@ export class VoxelWorld {
     );
   }
 
-  /** Out-of-bounds reads return Air above the world and Stone below the floor. */
+  /**
+   * Out-of-bounds reads return Air.
+   *
+   * Nothing below y=0 either — a hole in the floor has to be a real hole, so
+   * falling through one keeps going until the death plane catches it.
+   */
   get(x: number, y: number, z: number): number {
-    if (y < 0) return Block.Stone;
     if (!this.inBounds(x, y, z)) return Block.Air;
     return this.data[this.index(x, y, z)];
   }
@@ -140,16 +165,64 @@ export class VoxelWorld {
   }
 }
 
+export interface SpawnPoint {
+  /** Player feet position. */
+  position: Vec3;
+  /**
+   * Camera heading in radians. Yaw 0 looks down -Z (three.js convention), so PI
+   * faces +Z. Set this so the player starts looking into the space instead of
+   * at the wall behind them.
+   */
+  yaw: number;
+  /** Shown on the HUD after a respawn so the player knows where they landed. */
+  label: string;
+}
+
+/**
+ * A blinking laser beam.
+ *
+ * The beam runs from `origin` along one axis for `length` blocks at a fixed
+ * height. It cycles on for `onMs` then off for `offMs`; `phaseMs` shifts the
+ * cycle so a row of emitters can fire in sequence rather than in unison.
+ */
+export interface LaserEmitter {
+  origin: Vec3;
+  axis: 'x' | 'z';
+  length: number;
+  onMs: number;
+  offMs: number;
+  phaseMs: number;
+}
+
+/**
+ * A floor tile that drops away underfoot.
+ *
+ * Solid until the player stands on it, then opens after `triggerMs` and stays
+ * open for `openMs` before resetting — so a wrong route is recoverable rather
+ * than permanently sealing the level.
+ */
+export interface TrapDoorSpec {
+  /** Tiles that open together as one panel. */
+  tiles: Vec3[];
+  triggerMs: number;
+  openMs: number;
+}
+
+export interface HazardSet {
+  lasers: LaserEmitter[];
+  trapDoors: TrapDoorSpec[];
+}
+
+export const NO_HAZARDS: HazardSet = { lasers: [], trapDoors: [] };
+
 export interface ConceptScene {
   world: VoxelWorld;
-  /** Player feet position at spawn. */
-  spawn: Vec3;
   /**
-   * Camera heading at spawn, in radians. Yaw 0 looks down -Z (three.js
-   * convention), so PI faces +Z. Set this so the player starts looking into the
-   * space instead of at the wall behind them.
+   * Where the player can start. More than one means respawns move you around
+   * the level instead of always resetting to the same corner.
    */
-  spawnYaw: number;
+  spawns: SpawnPoint[];
+  hazards: HazardSet;
   /** Block coordinate of the goal button. */
   button: Vec3;
 }
@@ -219,7 +292,16 @@ function buildInterior(): ConceptScene {
   const button = { x: 24, y: 2, z: 26 };
   world.set(button.x, button.y, button.z, Block.Button);
 
-  return { world, spawn: { x: 3.5, y: 1, z: 3.5 }, spawnYaw: Math.PI, button };
+  return {
+    world,
+    spawns: [
+      { position: { x: 3.5, y: 1, z: 3.5 }, yaw: Math.PI, label: 'Front-left room' },
+      { position: { x: 24.5, y: 1, z: 3.5 }, yaw: Math.PI, label: 'Front-right room' },
+      { position: { x: 3.5, y: 1, z: 24.5 }, yaw: 0, label: 'Back-left room' },
+    ],
+    hazards: NO_HAZARDS,
+    button,
+  };
 }
 
 /** Concept A — one open room, button tucked behind pillars. */
@@ -244,7 +326,12 @@ function buildRoom(): ConceptScene {
 
   const button = { x: 22, y: 2, z: 20 };
   world.set(button.x, button.y, button.z, Block.Button);
-  return { world, spawn: { x: 3.5, y: 1, z: 3.5 }, spawnYaw: Math.PI, button };
+  return {
+    world,
+    spawns: [{ position: { x: 3.5, y: 1, z: 3.5 }, yaw: Math.PI, label: 'Corner' }],
+    hazards: NO_HAZARDS,
+    button,
+  };
 }
 
 /** Concept B — grid maze; button sits in a dead end. */
@@ -271,7 +358,12 @@ function buildMaze(): ConceptScene {
   const button = { x: 23, y: 2, z: 21 };
   world.fill(21, 1, 21, 23, 3, 21, Block.Air);
   world.set(button.x, button.y, button.z, Block.Button);
-  return { world, spawn: { x: 1.5, y: 1, z: 1.5 }, spawnYaw: Math.PI, button };
+  return {
+    world,
+    spawns: [{ position: { x: 1.5, y: 1, z: 1.5 }, yaw: Math.PI, label: 'Maze entrance' }],
+    hazards: NO_HAZARDS,
+    button,
+  };
 }
 
 /** Concept C — stacked platforms; button requires climbing. */
@@ -301,10 +393,469 @@ function buildPlatforms(): ConceptScene {
   world.set(button.x, button.y, button.z, Block.Button);
   // Spawn on open floor, away from the steps at x=1..3 — spawning inside them
   // wedges the player in a solid block.
-  return { world, spawn: { x: 12.5, y: 1, z: 1.5 }, spawnYaw: Math.PI, button };
+  return {
+    world,
+    spawns: [{ position: { x: 12.5, y: 1, z: 1.5 }, yaw: Math.PI, label: 'Ground floor' }],
+    hazards: NO_HAZARDS,
+    button,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Expansive concepts — larger levels built around hazards and multiple spawns.
+// ---------------------------------------------------------------------------
+
+/**
+ * Expansive Interior — "The Facility".
+ *
+ * A 44x44 building on two levels: a ring corridor patrolled by sweeping lasers,
+ * side offices, a central atrium open to a basement, and a server room where
+ * the button hides. Trapdoors sit in the corridor floor over the basement, so
+ * the fast route is also the one that drops you.
+ */
+function buildFacility(): ConceptScene {
+  const W = 44;
+  const H = 14;
+  const D = 44;
+  const world = new VoxelWorld(W, H, D);
+
+  const groundY = 4; // basement floor is y=0, ground floor slab at y=4
+  const wallTop = groundY + 4;
+
+  // Basement: lava pools at the bottom, so falling through anything hurts.
+  world.fill(0, 0, 0, W - 1, 0, D - 1, Block.Stone);
+  world.fill(6, 0, 6, 18, 0, 18, Block.Lava);
+  world.fill(26, 0, 26, 38, 0, 38, Block.Lava);
+  world.fill(1, 1, 1, W - 2, 1, D - 2, Block.Air);
+
+  // Ground slab, then carve the atrium open to the basement below.
+  world.fill(0, groundY, 0, W - 1, groundY, D - 1, Block.Tile);
+  world.fill(18, groundY, 18, 25, groundY, 25, Block.Air);
+
+  // Outer shell and ceiling.
+  world.fill(0, groundY + 1, 0, W - 1, wallTop, 0, Block.Brick);
+  world.fill(0, groundY + 1, D - 1, W - 1, wallTop, D - 1, Block.Brick);
+  world.fill(0, groundY + 1, 0, 0, wallTop, D - 1, Block.Brick);
+  world.fill(W - 1, groundY + 1, 0, W - 1, wallTop, D - 1, Block.Brick);
+  world.fill(0, wallTop + 1, 0, W - 1, wallTop + 1, D - 1, Block.Tile);
+
+  // Inner ring wall, forming a corridor between it and the outer wall.
+  world.fill(8, groundY + 1, 8, 35, wallTop, 8, Block.Plaster);
+  world.fill(8, groundY + 1, 35, 35, wallTop, 35, Block.Plaster);
+  world.fill(8, groundY + 1, 8, 8, wallTop, 35, Block.Plaster);
+  world.fill(35, groundY + 1, 8, 35, wallTop, 35, Block.Plaster);
+
+  // Four doorways into the interior.
+  world.fill(20, groundY + 1, 8, 23, groundY + 3, 8, Block.Air);
+  world.fill(20, groundY + 1, 35, 23, groundY + 3, 35, Block.Air);
+  world.fill(8, groundY + 1, 20, 8, groundY + 3, 23, Block.Air);
+  world.fill(35, groundY + 1, 20, 35, groundY + 3, 23, Block.Air);
+
+  // Interior partitions making a server room in the north-east quadrant.
+  world.fill(24, groundY + 1, 9, 24, wallTop, 16, Block.Metal);
+  world.fill(25, groundY + 1, 16, 34, wallTop, 16, Block.Metal);
+  world.fill(28, groundY + 1, 16, 30, groundY + 3, 16, Block.Air); // server room door
+
+  // Server racks — cover, and something to look behind.
+  for (let rx = 27; rx <= 33; rx += 3) {
+    world.fill(rx, groundY + 1, 10, rx, groundY + 3, 14, Block.Metal);
+  }
+
+  // Spike pits in the corridor corners.
+  world.fill(3, groundY, 3, 5, groundY, 5, Block.Spikes);
+  world.fill(38, groundY, 38, 40, groundY, 40, Block.Spikes);
+
+  // Lighting.
+  for (const [lx, lz] of [
+    [4, 21],
+    [21, 4],
+    [39, 21],
+    [21, 39],
+    [30, 12],
+    [12, 30],
+  ]) {
+    world.set(lx, wallTop, lz, Block.Lamp);
+  }
+
+  // Laser emitter housings, so the beams read as coming from something.
+  const lasers: LaserEmitter[] = [];
+  const addLaser = (
+    origin: Vec3,
+    axis: 'x' | 'z',
+    length: number,
+    phaseMs: number,
+    onMs = 1800,
+    offMs = 1400
+  ) => {
+    lasers.push({ origin, axis, length, onMs, offMs, phaseMs });
+    world.set(origin.x, origin.y, origin.z, Block.Emitter);
+    if (axis === 'x') world.set(origin.x + length, origin.y, origin.z, Block.Emitter);
+    else world.set(origin.x, origin.y, origin.z + length, Block.Emitter);
+  };
+
+  // Corridor sweeps — staggered phases so there is always a gap somewhere.
+  addLaser({ x: 1, y: groundY + 1, z: 4 }, 'x', 5, 0);
+  addLaser({ x: 1, y: groundY + 1, z: 12 }, 'x', 5, 900);
+  addLaser({ x: 1, y: groundY + 2, z: 28 }, 'x', 5, 1800);
+  addLaser({ x: 37, y: groundY + 1, z: 16 }, 'x', 5, 500);
+  addLaser({ x: 37, y: groundY + 2, z: 30 }, 'x', 5, 1300);
+  addLaser({ x: 12, y: groundY + 1, z: 37 }, 'z', 5, 400);
+  addLaser({ x: 28, y: groundY + 2, z: 37 }, 'z', 5, 1600);
+  // Server room approach — the last obstacle before the button.
+  addLaser({ x: 25, y: groundY + 1, z: 9 }, 'z', 6, 0, 2200, 1100);
+
+  // Trapdoors in the corridor floor, dropping into the basement lava.
+  const trapDoors: TrapDoorSpec[] = [
+    {
+      tiles: [
+        { x: 14, y: groundY, z: 4 },
+        { x: 15, y: groundY, z: 4 },
+        { x: 14, y: groundY, z: 5 },
+        { x: 15, y: groundY, z: 5 },
+      ],
+      triggerMs: 420,
+      openMs: 4000,
+    },
+    {
+      tiles: [
+        { x: 39, y: groundY, z: 14 },
+        { x: 39, y: groundY, z: 15 },
+        { x: 40, y: groundY, z: 14 },
+        { x: 40, y: groundY, z: 15 },
+      ],
+      triggerMs: 420,
+      openMs: 4000,
+    },
+    {
+      tiles: [
+        { x: 21, y: groundY, z: 30 },
+        { x: 22, y: groundY, z: 30 },
+        { x: 21, y: groundY, z: 31 },
+        { x: 22, y: groundY, z: 31 },
+      ],
+      triggerMs: 300,
+      openMs: 4000,
+    },
+  ];
+  trapDoors.forEach((spec) =>
+    spec.tiles.forEach((t) => world.set(t.x, t.y, t.z, Block.TrapDoor))
+  );
+
+  const button = { x: 34, y: groundY + 2, z: 10 };
+  world.set(button.x, button.y, button.z, Block.Button);
+
+  return {
+    world,
+    spawns: [
+      { position: { x: 3.5, y: groundY + 1, z: 21.5 }, yaw: -Math.PI / 2, label: 'West corridor' },
+      { position: { x: 21.5, y: groundY + 1, z: 3.5 }, yaw: Math.PI, label: 'North corridor' },
+      { position: { x: 40.5, y: groundY + 1, z: 21.5 }, yaw: Math.PI / 2, label: 'East corridor' },
+      { position: { x: 21.5, y: groundY + 1, z: 40.5 }, yaw: 0, label: 'South corridor' },
+    ],
+    hazards: { lasers, trapDoors },
+    button,
+  };
+}
+
+/**
+ * Expansive Maze — "The Catacombs".
+ *
+ * A 41x41 maze carved with a randomised depth-first walk, so the layout is a
+ * real maze rather than a lattice. Lava channels flood some corridors, holes
+ * drop into a pit below, and beams cover several junctions. The button sits at
+ * the maze's furthest reachable cell from the entrance.
+ */
+function buildCatacombs(): ConceptScene {
+  const cells = 20; // maze is cells x cells, each cell 2 blocks + wall
+  const W = cells * 2 + 1;
+  const D = cells * 2 + 1;
+  const H = 8;
+  const world = new VoxelWorld(W, H, D);
+
+  // Solid rock, then carve.
+  world.fill(0, 0, 0, W - 1, 0, D - 1, Block.Stone);
+  world.fill(0, 1, 0, W - 1, 4, D - 1, Block.Stone);
+  world.fill(0, 5, 0, W - 1, 5, D - 1, Block.Brick);
+
+  // Deterministic maze carve — a fixed seed keeps the level identical run to run.
+  let seed = 20260809;
+  const random = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return ((seed >>> 0) % 100000) / 100000;
+  };
+
+  const visited = new Set<string>();
+  const cellKey = (cx: number, cz: number) => `${cx},${cz}`;
+  const carve = (cx: number, cz: number) => {
+    world.fill(cx * 2 + 1, 1, cz * 2 + 1, cx * 2 + 1, 3, cz * 2 + 1, Block.Air);
+  };
+
+  // Iterative DFS — recursion would blow the stack on a large grid.
+  const stack: { cx: number; cz: number }[] = [{ cx: 0, cz: 0 }];
+  visited.add(cellKey(0, 0));
+  carve(0, 0);
+
+  while (stack.length) {
+    const cur = stack[stack.length - 1];
+    const dirs = [
+      { dx: 1, dz: 0 },
+      { dx: -1, dz: 0 },
+      { dx: 0, dz: 1 },
+      { dx: 0, dz: -1 },
+    ];
+    // Shuffle so each junction picks a different order.
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+
+    const next = dirs
+      .map((d) => ({ cx: cur.cx + d.dx, cz: cur.cz + d.dz, d }))
+      .find(
+        (n) =>
+          n.cx >= 0 && n.cz >= 0 && n.cx < cells && n.cz < cells && !visited.has(cellKey(n.cx, n.cz))
+      );
+
+    if (!next) {
+      stack.pop();
+      continue;
+    }
+
+    visited.add(cellKey(next.cx, next.cz));
+    carve(next.cx, next.cz);
+    // Knock out the wall between the two cells.
+    const wallX = cur.cx * 2 + 1 + next.d.dx;
+    const wallZ = cur.cz * 2 + 1 + next.d.dz;
+    world.fill(wallX, 1, wallZ, wallX, 3, wallZ, Block.Air);
+    stack.push({ cx: next.cx, cz: next.cz });
+  }
+
+  // Braid a few dead ends into loops so it is not purely a tree.
+  for (let i = 0; i < 40; i++) {
+    const cx = 1 + Math.floor(random() * (cells - 2));
+    const cz = 1 + Math.floor(random() * (cells - 2));
+    const horizontal = random() < 0.5;
+    const wx = cx * 2 + 1 + (horizontal ? 1 : 0);
+    const wz = cz * 2 + 1 + (horizontal ? 0 : 1);
+    world.fill(wx, 1, wz, wx, 3, wz, Block.Air);
+  }
+
+  // Lava channels along a few corridors.
+  const lavaSpots: [number, number][] = [
+    [9, 5],
+    [23, 11],
+    [15, 27],
+    [31, 19],
+    [7, 33],
+    [33, 31],
+  ];
+  for (const [lx, lz] of lavaSpots) {
+    if (!world.isSolid(lx, 1, lz)) world.set(lx, 0, lz, Block.Lava);
+    if (!world.isSolid(lx + 2, 1, lz)) world.set(lx + 2, 0, lz, Block.Lava);
+  }
+
+  // Holes straight through the floor into nothing.
+  const holes: [number, number][] = [
+    [13, 13],
+    [27, 7],
+    [11, 29],
+    [29, 27],
+    [19, 21],
+  ];
+  for (const [hx, hz] of holes) {
+    if (!world.isSolid(hx, 1, hz)) world.set(hx, 0, hz, Block.Air);
+  }
+
+  // Lamps scattered so corridors are navigable but not evenly lit.
+  for (let i = 0; i < 26; i++) {
+    const lx = 1 + Math.floor(random() * (W - 2));
+    const lz = 1 + Math.floor(random() * (D - 2));
+    if (!world.isSolid(lx, 3, lz)) world.set(lx, 4, lz, Block.Lamp);
+  }
+
+  // Beams across a handful of junctions.
+  const lasers: LaserEmitter[] = [];
+  const junctions: [number, number, 'x' | 'z'][] = [
+    [5, 9, 'x'],
+    [17, 15, 'z'],
+    [25, 25, 'x'],
+    [9, 23, 'z'],
+    [33, 13, 'x'],
+    [21, 33, 'z'],
+  ];
+  junctions.forEach(([jx, jz, axis], i) => {
+    lasers.push({
+      origin: { x: jx, y: 1, z: jz },
+      axis,
+      length: 3,
+      onMs: 1500,
+      offMs: 1500,
+      phaseMs: i * 380,
+    });
+  });
+
+  // The button goes in the cell furthest from the entrance, by corridor distance.
+  const startCell = { cx: 0, cz: 0 };
+  const dist = new Map<string, number>([[cellKey(0, 0), 0]]);
+  const queue: { cx: number; cz: number }[] = [startCell];
+  let furthest = startCell;
+
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const d = dist.get(cellKey(cur.cx, cur.cz))!;
+    if (d > (dist.get(cellKey(furthest.cx, furthest.cz)) ?? 0)) furthest = cur;
+
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const nx = cur.cx + dx;
+      const nz = cur.cz + dz;
+      if (nx < 0 || nz < 0 || nx >= cells || nz >= cells) continue;
+      if (dist.has(cellKey(nx, nz))) continue;
+      // Passable only if the wall between them was carved out.
+      if (world.isSolid(cur.cx * 2 + 1 + dx, 1, cur.cz * 2 + 1 + dz)) continue;
+      dist.set(cellKey(nx, nz), d + 1);
+      queue.push({ cx: nx, cz: nz });
+    }
+  }
+
+  const button = { x: furthest.cx * 2 + 1, y: 2, z: furthest.cz * 2 + 1 };
+  world.set(button.x, button.y, button.z, Block.Button);
+  // Make sure the button tile has floor under it rather than one of the holes.
+  world.set(button.x, 0, button.z, Block.Stone);
+
+  return {
+    world,
+    spawns: [
+      // Corridors are carved on odd coordinates (cell c sits at 2c+1), so every
+      // spawn must land on an odd block or it starts inside a wall.
+      { position: { x: 1.5, y: 1, z: 1.5 }, yaw: Math.PI, label: 'North-west entrance' },
+      { position: { x: (cells - 1) * 2 + 1.5, y: 1, z: 1.5 }, yaw: Math.PI, label: 'North-east entrance' },
+      { position: { x: 1.5, y: 1, z: (cells - 1) * 2 + 1.5 }, yaw: 0, label: 'South-west entrance' },
+    ],
+    hazards: { lasers, trapDoors: [] },
+    button,
+  };
+}
+
+/**
+ * Expansive Platforms — "The Spire".
+ *
+ * A tall shaft climbed by jumping between islands. There is no floor: miss a
+ * jump and you fall past every tier to the death plane. Trapdoor platforms give
+ * way if you linger, and beams cut across the gaps at the higher tiers.
+ */
+function buildSpire(): ConceptScene {
+  const W = 34;
+  // Tall enough for the summit: topY = 3 + tiers*4 = 47, plus wall and lamp above.
+  const H = 56;
+  const D = 34;
+  const world = new VoxelWorld(W, H, D);
+
+  // Ground ring only — the middle is open all the way down.
+  world.fill(0, 0, 0, W - 1, 0, D - 1, Block.Stone);
+  world.fill(5, 0, 5, W - 6, 0, D - 6, Block.Air);
+  world.fill(8, 0, 8, W - 9, 0, D - 9, Block.Lava);
+
+  const lasers: LaserEmitter[] = [];
+  const trapDoors: TrapDoorSpec[] = [];
+
+  // Spiral of islands climbing the shaft.
+  const tiers = 11;
+  for (let i = 0; i < tiers; i++) {
+    const y = 3 + i * 4;
+    const angle = i * 1.15;
+    const radius = 11;
+    const cx = Math.round(W / 2 + Math.cos(angle) * radius);
+    const cz = Math.round(D / 2 + Math.sin(angle) * radius);
+
+    // Alternate solid islands and trapdoor islands.
+    const isTrap = i > 1 && i % 3 === 2;
+    const material = isTrap ? Block.TrapDoor : i % 2 === 0 ? Block.Wood : Block.Metal;
+    const half = isTrap ? 1 : 2;
+
+    const tiles: Vec3[] = [];
+    for (let dz = -half; dz <= half; dz++) {
+      for (let dx = -half; dx <= half; dx++) {
+        world.set(cx + dx, y, cz + dz, material);
+        if (isTrap) tiles.push({ x: cx + dx, y, z: cz + dz });
+      }
+    }
+    if (isTrap) trapDoors.push({ tiles, triggerMs: 550, openMs: 5000 });
+
+    // A stepping stone between tiers so the climb is possible without sprinting.
+    const midAngle = angle + 0.575;
+    const mx = Math.round(W / 2 + Math.cos(midAngle) * radius);
+    const mz = Math.round(D / 2 + Math.sin(midAngle) * radius);
+    if (i < tiers - 1) {
+      world.fill(mx - 1, y + 2, mz - 1, mx + 1, y + 2, mz + 1, Block.Stone);
+    }
+
+    world.set(cx, y + 3, cz, Block.Lamp);
+
+    // Beams guarding the upper half of the climb.
+    if (i >= 5) {
+      lasers.push({
+        origin: { x: cx - 4, y: y + 1, z: cz },
+        axis: 'x',
+        length: 8,
+        onMs: 1600,
+        offMs: 1700,
+        phaseMs: i * 420,
+      });
+    }
+  }
+
+  // Summit platform with the button.
+  const topY = 3 + tiers * 4;
+  const cx = Math.round(W / 2);
+  const cz = Math.round(D / 2);
+  world.fill(cx - 3, topY, cz - 3, cx + 3, topY, cz + 3, Block.Tile);
+  world.fill(cx - 3, topY + 1, cz - 3, cx - 3, topY + 3, cz + 3, Block.Brick);
+  world.set(cx, topY + 4, cz, Block.Lamp);
+
+  const button = { x: cx - 3, y: topY + 2, z: cz };
+  world.set(button.x, button.y, button.z, Block.Button);
+
+  return {
+    world,
+    spawns: [
+      { position: { x: 2.5, y: 1, z: 16.5 }, yaw: -Math.PI / 2, label: 'Base, west ledge' },
+      { position: { x: 16.5, y: 1, z: 2.5 }, yaw: Math.PI, label: 'Base, north ledge' },
+      { position: { x: W - 2.5, y: 1, z: 16.5 }, yaw: Math.PI / 2, label: 'Base, east ledge' },
+    ],
+    hazards: { lasers, trapDoors },
+    button,
+  };
 }
 
 export const CONCEPTS: Concept[] = [
+  {
+    id: 'facility',
+    name: 'The Facility',
+    description:
+      'Two-level building. Laser-swept ring corridor, trapdoors over a lava basement, button in the server room.',
+    build: buildFacility,
+  },
+  {
+    id: 'catacombs',
+    name: 'The Catacombs',
+    description:
+      'A real generated maze with lava channels, holes in the floor, and beams across junctions. Button at the furthest cell.',
+    build: buildCatacombs,
+  },
+  {
+    id: 'spire',
+    name: 'The Spire',
+    description:
+      'Climb a spiral of islands over an open drop. Trapdoor platforms and beams across the gaps. No floor to catch you.',
+    build: buildSpire,
+  },
   {
     id: 'interior',
     name: 'Interior',

@@ -132,13 +132,16 @@ test('raycast finds the button block ahead and misses when aimed away', () => {
 // place a button that is reachable. Catches level-gen regressions cheaply.
 for (const concept of CONCEPTS) {
   test(`concept "${concept.name}" is playable`, () => {
-    const { world, spawn, button } = concept.build();
+    const { world, spawns, button } = concept.build();
 
-    assert.equal(
-      collides(world, spawn.x, spawn.y, spawn.z),
-      false,
-      'spawn must not be inside a solid block'
-    );
+    assert.ok(spawns.length > 0, 'concept defines at least one spawn point');
+    for (const spawn of spawns) {
+      assert.equal(
+        collides(world, spawn.position.x, spawn.position.y, spawn.position.z),
+        false,
+        `spawn "${spawn.label}" must not be inside a solid block`
+      );
+    }
 
     assert.equal(
       world.get(button.x, button.y, button.z),
@@ -159,10 +162,15 @@ for (const concept of CONCEPTS) {
       'button has an exposed face, so it can be seen and pressed'
     );
 
-    let player = createPlayer(spawn);
-    for (let i = 0; i < 300; i++) {
-      player = stepPlayer(world, player, NO_INPUT, 0, 1 / 60);
+    for (const spawn of spawns) {
+      let player = createPlayer(spawn.position);
+      for (let i = 0; i < 300; i++) {
+        player = stepPlayer(world, player, NO_INPUT, 0, 1 / 60);
+      }
+      assert.ok(
+        player.onGround,
+        `spawn "${spawn.label}" lands on ground rather than falling out of the world`
+      );
     }
-    assert.ok(player.onGround, 'player lands rather than falling out of the world');
   });
 }

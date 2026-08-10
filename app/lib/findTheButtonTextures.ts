@@ -228,6 +228,98 @@ function buttonTexture(): Texture {
   return toTexture(canvas);
 }
 
+/** Molten lava — bright, so it reads as dangerous at a glance. */
+function lavaTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#d63a10';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Brighter cracks over a dark crust.
+  const random = makeRandom(616);
+  ctx.fillStyle = '#7a1f08';
+  for (let i = 0; i < 18; i++) {
+    ctx.fillRect(random() * SIZE, random() * SIZE, 3 + random() * 6, 2);
+  }
+  ctx.fillStyle = '#ffb43c';
+  for (let i = 0; i < 12; i++) {
+    ctx.fillRect(random() * SIZE, random() * SIZE, 2 + random() * 7, 1);
+  }
+  ctx.fillStyle = '#fff0a8';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(random() * SIZE, random() * SIZE, 2, 1);
+  }
+  return toTexture(canvas);
+}
+
+/** Floor spikes — upward triangles on dark stone. */
+function spikesTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#3b3f45';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const spikeWidth = 8;
+  for (let x = 0; x < SIZE; x += spikeWidth) {
+    ctx.beginPath();
+    ctx.moveTo(x + 1, SIZE - 2);
+    ctx.lineTo(x + spikeWidth / 2, 3);
+    ctx.lineTo(x + spikeWidth - 1, SIZE - 2);
+    ctx.closePath();
+    ctx.fillStyle = '#c9ced6';
+    ctx.fill();
+    // Highlight down one edge so the points read as 3D.
+    ctx.fillStyle = '#eef1f5';
+    ctx.fillRect(x + spikeWidth / 2 - 1, 4, 1, SIZE - 8);
+  }
+  addNoise(ctx, 71, 26, 0.07);
+  return toTexture(canvas);
+}
+
+/** Trapdoor panel — hatched metal with hazard stripes. */
+function trapDoorTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#8a7b3f';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Diagonal hazard stripes.
+  ctx.strokeStyle = '#2b2b2b';
+  ctx.lineWidth = 4;
+  for (let i = -SIZE; i < SIZE * 2; i += 12) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + SIZE, SIZE);
+    ctx.stroke();
+  }
+
+  // Panel edge and centre seam, so it reads as a hinged door.
+  ctx.strokeStyle = '#4a431f';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, SIZE - 2, SIZE - 2);
+  ctx.fillStyle = '#4a431f';
+  ctx.fillRect(0, SIZE / 2 - 1, SIZE, 2);
+  return toTexture(canvas);
+}
+
+/** Laser emitter housing. */
+function emitterTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#2f353c';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.strokeStyle = '#4d565f';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, SIZE - 4, SIZE - 4);
+
+  // Glowing lens.
+  ctx.beginPath();
+  ctx.arc(SIZE / 2, SIZE / 2, SIZE / 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff4d4d';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(SIZE / 2, SIZE / 2, SIZE / 10, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffd9d9';
+  ctx.fill();
+  return toTexture(canvas);
+}
+
 /** Build every block texture. Call once per scene and dispose on unmount. */
 export function createBlockTextures(): Map<number, Texture> {
   return new Map<number, Texture>([
@@ -241,5 +333,9 @@ export function createBlockTextures(): Map<number, Texture> {
     [Block.Plaster, plasterTexture()],
     [Block.Planks, planksTexture()],
     [Block.Tile, tileTexture()],
+    [Block.Lava, lavaTexture()],
+    [Block.Spikes, spikesTexture()],
+    [Block.TrapDoor, trapDoorTexture()],
+    [Block.Emitter, emitterTexture()],
   ]);
 }
