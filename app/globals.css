@@ -89,6 +89,22 @@ body {
   }
 }
 
+/* Horizontal jolt — wrong-answer feedback on the combination lock keypad. */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-7px);
+  }
+  40%,
+  80% {
+    transform: translateX(7px);
+  }
+}
+
 /* Content eases up + fades in on every route mount (the "page transition"). */
 .animate-page-in {
   animation: pageIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -107,6 +123,10 @@ body {
   animation: floatY 3s ease-in-out infinite;
 }
 
+.animate-shake {
+  animation: shake 0.4s ease-in-out both;
+}
+
 /* Soft, deep shadows so white cards glow off the gradient. */
 .shadow-glow {
   box-shadow: 0 22px 55px -18px rgba(17, 12, 34, 0.55);
@@ -121,7 +141,8 @@ body {
   .animate-page-in,
   .animate-drop-in,
   .animate-pop-in,
-  .animate-float {
+  .animate-float,
+  .animate-shake {
     animation: none;
   }
 }

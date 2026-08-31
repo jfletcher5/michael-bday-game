@@ -7,6 +7,7 @@ import {
   CONCEPTS,
   LaserEmitter,
   TrapDoorSpec,
+  openDoor,
 } from './findTheButton';
 import { collides, createPlayer, stepPlayer } from './findTheButtonPhysics';
 import {
@@ -228,7 +229,12 @@ test('a player standing on an opening trapdoor actually falls', () => {
 // The Spire in particular, only playing it confirms the climb works.
 for (const concept of CONCEPTS) {
   test(`concept "${concept.name}" has a safe route to the button`, () => {
-    const { world, spawns, button } = concept.build();
+    const scene = concept.build();
+    const { world, spawns, button } = scene;
+
+    // Locked doors open once the combination is entered, so a route may pass
+    // through them — open them before pathfinding.
+    if (scene.lock) openDoor(world, scene.lock);
 
     const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
     const reachedFrom = spawns.map((spawn) => {

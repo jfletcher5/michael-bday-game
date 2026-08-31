@@ -25,6 +25,8 @@ export const enum Block {
   Spikes = 12,
   TrapDoor = 13,
   Emitter = 14,
+  Door = 15,
+  LockPanel = 16,
 }
 
 /** Blocks that kill on contact. */
@@ -33,11 +35,11 @@ export function isDeadlyBlock(block: number): boolean {
 }
 
 /**
- * Trapdoor tiles are rendered separately from the static block mesh because
- * they open and close at runtime, so the static mesh must skip them.
+ * Trapdoor and door tiles are rendered separately from the static block mesh
+ * because they open at runtime, so the static mesh must skip them.
  */
 export function isDynamicBlock(block: number): boolean {
-  return block === Block.TrapDoor;
+  return block === Block.TrapDoor || block === Block.Door;
 }
 
 /**
@@ -59,6 +61,8 @@ export const BLOCK_COLORS: Record<number, string> = {
   [Block.Spikes]: '#ffffff',
   [Block.TrapDoor]: '#ffffff',
   [Block.Emitter]: '#ffffff',
+  [Block.Door]: '#ffffff',
+  [Block.LockPanel]: '#ffffff',
 };
 
 /** Blocks that should render at full brightness rather than take lighting. */
@@ -215,6 +219,21 @@ export interface HazardSet {
 
 export const NO_HAZARDS: HazardSet = { lasers: [], trapDoors: [] };
 
+/**
+ * A combination lock gating a door.
+ *
+ * `code` is the digit string the player must enter on the keypad. `doorTiles`
+ * are the Door blocks that open when the code is accepted; `panel` is the
+ * LockPanel block the player aims at to bring up the keypad. `hint` is shown
+ * on the keypad so the puzzle is solvable without leaving the level.
+ */
+export interface LockSpec {
+  code: string;
+  doorTiles: Vec3[];
+  panel: Vec3;
+  hint: string;
+}
+
 export interface ConceptScene {
   world: VoxelWorld;
   /**
@@ -225,6 +244,16 @@ export interface ConceptScene {
   hazards: HazardSet;
   /** Block coordinate of the goal button. */
   button: Vec3;
+  /** Combination lock gating the route to the button, if the level has one. */
+  lock?: LockSpec;
+}
+
+/**
+ * Open a lock's door: every door tile becomes Air, so collision, rendering,
+ * and pathfinding all treat the doorway as open from that moment on.
+ */
+export function openDoor(world: VoxelWorld, lock: LockSpec): void {
+  lock.doorTiles.forEach((t) => world.set(t.x, t.y, t.z, Block.Air));
 }
 
 export interface Concept {
@@ -834,7 +863,218 @@ function buildSpire(): ConceptScene {
   };
 }
 
+/**
+ * The Vault — locked in a small counting room.
+ *
+ * The only way out is a combination-locked door, and the code is the room
+ * itself: count the crates, the ceiling lamps, and the metal benches. Beyond
+ * the door is a large generated maze with the button at its furthest cell.
+ * No hazards — the puzzle and the navigation are the challenge.
+ */
+function buildVault(): ConceptScene {
+  // Maze grid: each cell is a 1-block corridor on odd coordinates with walls on
+  // even ones, so the maze region is (2*cells+1) blocks per side.
+  const cellsX = 13; // corridor columns at x = 1,3,...,25; boundary walls x=0,26
+  const cellsZ = 12; // corridor rows at z = 1,3,...,23; boundary walls z=0,24
+  const W = cellsX * 2 + 1; // 27
+  const H = 7;
+
+  // The start room hangs off the maze's south side, behind the door wall.
+  const roomX0 = 10; // interior x = 10..16
+  const roomX1 = 16;
+  const roomZ0 = 27; // interior z = 27..33
+  const roomZ1 = 33;
+  const D = roomZ1 + 2; // 35 — one block of wall past the room's south face
+  const world = new VoxelWorld(W, H, D);
+
+  // Everything starts as solid rock; rooms and corridors are carved out.
+  world.fill(0, 0, 0, W - 1, 0, D - 1, Block.Stone); // floor slab
+  world.fill(0, 1, 0, W - 1, 4, D - 1, Block.Stone); // rock
+  world.fill(0, 5, 0, W - 1, 5, D - 1, Block.Tile); // ceiling
+
+  // --- Maze: deterministic depth-first carve (fixed seed, same layout every run).
+  let seed = 20260831;
+  const random = () => {
+    // xorshift32
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return ((seed >>> 0) % 100000) / 100000;
+  };
+
+  const cellKey = (cx: number, cz: number) => `${cx},${cz}`;
+  const carveCell = (cx: number, cz: number) => {
+    world.fill(cx * 2 + 1, 1, cz * 2 + 1, cx * 2 + 1, 3, cz * 2 + 1, Block.Air);
+  };
+
+  const visited = new Set<string>();
+  const stack: { cx: number; cz: number }[] = [{ cx: 0, cz: 0 }];
+  visited.add(cellKey(0, 0));
+  carveCell(0, 0);
+
+  while (stack.length) {
+    const cur = stack[stack.length - 1];
+    const dirs = [
+      { dx: 1, dz: 0 },
+      { dx: -1, dz: 0 },
+      { dx: 0, dz: 1 },
+      { dx: 0, dz: -1 },
+    ];
+    // Shuffle so each junction picks a different order.
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+
+    const next = dirs
+      .map((d) => ({ cx: cur.cx + d.dx, cz: cur.cz + d.dz, d }))
+      .find(
+        (n) =>
+          n.cx >= 0 && n.cz >= 0 && n.cx < cellsX && n.cz < cellsZ && !visited.has(cellKey(n.cx, n.cz))
+      );
+
+    if (!next) {
+      stack.pop();
+      continue;
+    }
+
+    visited.add(cellKey(next.cx, next.cz));
+    carveCell(next.cx, next.cz);
+    // Knock out the wall between the two cells.
+    const wallX = cur.cx * 2 + 1 + next.d.dx;
+    const wallZ = cur.cz * 2 + 1 + next.d.dz;
+    world.fill(wallX, 1, wallZ, wallX, 3, wallZ, Block.Air);
+    stack.push({ cx: next.cx, cz: next.cz });
+  }
+
+  // Braid a few dead ends into loops so the maze is not a pure tree. Interior
+  // cells only — the boundary walls stay sealed except for the door connector.
+  for (let i = 0; i < 24; i++) {
+    const cx = 1 + Math.floor(random() * (cellsX - 2));
+    const cz = 1 + Math.floor(random() * (cellsZ - 2));
+    const horizontal = random() < 0.5;
+    const wx = cx * 2 + 1 + (horizontal ? 1 : 0);
+    const wz = cz * 2 + 1 + (horizontal ? 0 : 1);
+    world.fill(wx, 1, wz, wx, 3, wz, Block.Air);
+  }
+
+  // Ceiling lamps scattered through the maze corridors so it is navigable.
+  let mazeLamps = 0;
+  while (mazeLamps < 14) {
+    const lx = 1 + Math.floor(random() * (W - 2));
+    const lz = 1 + Math.floor(random() * (cellsZ * 2 - 1)); // stay inside the maze rows
+    if (!world.isSolid(lx, 1, lz)) {
+      world.set(lx, 4, lz, Block.Lamp);
+      mazeLamps++;
+    }
+  }
+
+  // --- Start room: a 7x7 counting room with a plank floor.
+  world.fill(roomX0, 1, roomZ0, roomX1, 3, roomZ1, Block.Air);
+  world.fill(roomX0, 0, roomZ0, roomX1, 0, roomZ1, Block.Planks);
+
+  // The clue objects. Counts are the code, in the order given by the hint:
+  // crates (4), ceiling lamps (2), metal benches (3). Single blocks each, so
+  // counting is unambiguous — and none sit on the walk line from the spawn to
+  // the door (x = 12..13).
+  for (const [cx, cz] of [
+    [11, 28],
+    [15, 28],
+    [11, 32],
+    [16, 31],
+  ]) {
+    world.set(cx, 1, cz, Block.Wood);
+  }
+  for (const [lx, lz] of [
+    [12, 29],
+    [15, 31],
+  ]) {
+    world.set(lx, 4, lz, Block.Lamp);
+  }
+  for (const [mx, mz] of [
+    [10, 29],
+    [16, 29],
+    [14, 33],
+  ]) {
+    world.set(mx, 1, mz, Block.Metal);
+  }
+
+  // --- Door: a 2-wide, 3-high gate in the wall between the room and the maze.
+  // The passage is carved through all three wall rows, then the middle row is
+  // filled with Door blocks so the gate sits inside a short corridor.
+  const doorX0 = 12;
+  const doorX1 = 13;
+  world.fill(doorX0, 1, 24, doorX1, 3, 26, Block.Air);
+  const doorTiles: Vec3[] = [];
+  for (let dx = doorX0; dx <= doorX1; dx++) {
+    for (let dy = 1; dy <= 3; dy++) {
+      world.set(dx, dy, 25, Block.Door);
+      doorTiles.push({ x: dx, y: dy, z: 25 });
+    }
+  }
+
+  // Lock panel embedded in the room's north wall, directly beside the doorway,
+  // with room air in front of it so the player can aim at it.
+  const panel = { x: 14, y: 2, z: 26 };
+  world.set(panel.x, panel.y, panel.z, Block.LockPanel);
+
+  // The button goes in the maze cell furthest from the cell the door passage
+  // joins (x=13, z=23 → cell 6,11), measured by corridor distance.
+  const startCell = { cx: 6, cz: 11 };
+  const dist = new Map<string, number>([[cellKey(startCell.cx, startCell.cz), 0]]);
+  const queue: { cx: number; cz: number }[] = [startCell];
+  let furthest = startCell;
+
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const d = dist.get(cellKey(cur.cx, cur.cz))!;
+    if (d > (dist.get(cellKey(furthest.cx, furthest.cz)) ?? 0)) furthest = cur;
+
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      const nx = cur.cx + dx;
+      const nz = cur.cz + dz;
+      if (nx < 0 || nz < 0 || nx >= cellsX || nz >= cellsZ) continue;
+      if (dist.has(cellKey(nx, nz))) continue;
+      // Passable only if the wall between the two cells was carved out.
+      if (world.isSolid(cur.cx * 2 + 1 + dx, 1, cur.cz * 2 + 1 + dz)) continue;
+      dist.set(cellKey(nx, nz), d + 1);
+      queue.push({ cx: nx, cz: nz });
+    }
+  }
+
+  const button = { x: furthest.cx * 2 + 1, y: 2, z: furthest.cz * 2 + 1 };
+  world.set(button.x, button.y, button.z, Block.Button);
+
+  return {
+    world,
+    spawns: [
+      // Yaw 0 faces -Z: straight at the door and the lock panel.
+      { position: { x: 13.5, y: 1, z: 30.5 }, yaw: 0, label: 'Counting room' },
+    ],
+    hazards: NO_HAZARDS,
+    button,
+    lock: {
+      code: '423',
+      doorTiles,
+      panel,
+      hint: 'Three numbers open the way. Count what is in this room: crates, then ceiling lamps, then metal benches.',
+    },
+  };
+}
+
 export const CONCEPTS: Concept[] = [
+  {
+    id: 'vault',
+    name: 'The Vault',
+    description:
+      'Locked in a counting room. Crack the combination to open the door, then search the maze beyond for the button.',
+    build: buildVault,
+  },
   {
     id: 'facility',
     name: 'The Facility',

@@ -153,6 +153,10 @@ export function stepTrapDoors(
 
   specs.forEach((spec, i) => {
     const state = states[i];
+    // The renderer resets its state array in an effect after a concept switch,
+    // so a frame can arrive with fewer states than specs — skip until it
+    // catches up rather than crashing on the undefined entry.
+    if (!state) return;
 
     if (state.openedAtMs !== null) {
       // Open — close again once the window elapses, but never under the player,

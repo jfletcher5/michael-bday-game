@@ -25,6 +25,7 @@ const COLORS = {
   lava: '#d63a10',
   spikes: '#b9c0c9',
   trapDoor: '#8a7b3f',
+  door: '#c9a227',
   hole: '#0b0d10',
   button: '#ff4b3e',
   player: '#ffffff',
@@ -86,7 +87,8 @@ export default function Minimap({
 
           let color: string;
           if (wall !== Block.Air) {
-            color = wall === Block.Lava ? COLORS.lava : COLORS.wall;
+            // Doors get their own colour so the locked gate reads on the map.
+            color = wall === Block.Lava ? COLORS.lava : wall === Block.Door ? COLORS.door : COLORS.wall;
           } else if (floor === Block.Lava) {
             color = COLORS.lava;
           } else if (floor === Block.Spikes) {

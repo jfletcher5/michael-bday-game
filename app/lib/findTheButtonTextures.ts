@@ -299,6 +299,58 @@ function trapDoorTexture(): Texture {
   return toTexture(canvas);
 }
 
+/** Locked door — heavy boarded leaves with a centre seam and a handle. */
+function doorTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#6b5a3e';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Vertical boards with seams between them.
+  ctx.fillStyle = 'rgba(43,34,22,0.7)';
+  for (let x = 7; x < SIZE; x += 8) {
+    ctx.fillRect(x, 0, 1, SIZE);
+  }
+  // Centre seam where the two leaves meet.
+  ctx.fillRect(SIZE / 2 - 1, 0, 2, SIZE);
+
+  // Rivets down each board.
+  ctx.fillStyle = '#2e2718';
+  for (let x = 3; x < SIZE; x += 8) {
+    for (let y = 4; y < SIZE; y += 8) {
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  // Handle on the right leaf.
+  ctx.fillStyle = '#c9b26a';
+  ctx.fillRect(SIZE / 2 + 5, SIZE / 2 - 1, 3, 6);
+  addNoise(ctx, 311, 24, 0.07);
+  return toTexture(canvas);
+}
+
+/** Combination lock panel — dark housing, display strip, 3x3 keypad. */
+function lockPanelTexture(): Texture {
+  const { canvas, ctx } = createCanvas();
+  ctx.fillStyle = '#232a33';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.strokeStyle = '#4d565f';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(2, 2, SIZE - 4, SIZE - 4);
+
+  // Display strip where the entered digits would glow.
+  ctx.fillStyle = '#7de3a8';
+  ctx.fillRect(7, 4, SIZE - 14, 5);
+
+  // 3x3 keypad.
+  ctx.fillStyle = '#c8d2dd';
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      ctx.fillRect(8 + col * 7, 13 + row * 6, 4, 4);
+    }
+  }
+  return toTexture(canvas);
+}
+
 /** Laser emitter housing. */
 function emitterTexture(): Texture {
   const { canvas, ctx } = createCanvas();
@@ -337,5 +389,7 @@ export function createBlockTextures(): Map<number, Texture> {
     [Block.Spikes, spikesTexture()],
     [Block.TrapDoor, trapDoorTexture()],
     [Block.Emitter, emitterTexture()],
+    [Block.Door, doorTexture()],
+    [Block.LockPanel, lockPanelTexture()],
   ]);
 }

@@ -41,6 +41,9 @@ import {
 /** Max reach for pressing the button, in blocks. */
 const REACH = 5;
 
+/** What the crosshair is currently aimed at and can interact with. */
+export type InteractTarget = 'button' | 'lock';
+
 /** One InstancedMesh per block type, so each type can carry its own texture. */
 function BlockGroup({
   blockId,
@@ -179,6 +182,35 @@ function TrapDoors({
   );
 }
 
+/**
+ * Locked door panels.
+ *
+ * Rendered as individual meshes (like trapdoors) rather than joining the
+ * static instanced mesh, because they vanish when the combination is accepted.
+ * The world tiles become Air at the same moment, so collision opens too.
+ */
+function Doors({
+  scene,
+  open,
+  texture,
+}: {
+  scene: ConceptScene;
+  open: boolean;
+  texture?: Texture;
+}) {
+  if (!scene.lock) return null;
+  return (
+    <group visible={!open}>
+      {scene.lock.doorTiles.map((tile, i) => (
+        <mesh key={i} position={[tile.x + 0.5, tile.y + 0.5, tile.z + 0.5]}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshLambertMaterial map={texture} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 /** Laser beams — thin emissive boxes toggled by each emitter's duty cycle. */
 function Lasers({ lasers }: { lasers: LaserEmitter[] }) {
   const meshRefs = useRef<(Mesh | null)[]>([]);
@@ -238,25 +270,41 @@ function Player({
   poseRef,
   onTargetChange,
   onPress,
+  onLockPress,
   onDeath,
   registerPress,
+  lockSolved,
+  paused,
 }: {
   scene: ConceptScene;
   trapDoorStatesRef: React.RefObject<TrapDoorState[]>;
   poseRef: React.RefObject<Pose>;
-  onTargetChange: (targetingButton: boolean) => void;
+  onTargetChange: (target: InteractTarget | null) => void;
   onPress: () => void;
+  onLockPress: () => void;
   onDeath: (cause: DeathCause, nextSpawn: SpawnPoint) => void;
   registerPress: (fn: () => void) => void;
+  lockSolved: boolean;
+  /** True while the lock keypad is open — freezes movement and targeting. */
+  paused: boolean;
 }) {
   const camera = useThree((s) => s.camera);
   const playerRef = useRef<PlayerState>(createPlayer(scene.spawns[0].position));
   const keysRef = useRef<Record<string, boolean>>({});
-  const targetingRef = useRef(false);
+  const targetingRef = useRef<InteractTarget | null>(null);
   /** Cycles through spawn points so repeated deaths do not replay one route. */
   const spawnIndexRef = useRef(0);
   /** Suppresses repeat death reports while the respawn settles. */
   const deadRef = useRef(false);
+
+  // Props read inside the frame loop and window listeners need ref mirrors —
+  // those closures are registered once and would otherwise capture stale values.
+  const pausedRef = useRef(paused);
+  const lockSolvedRef = useRef(lockSolved);
+  useEffect(() => {
+    pausedRef.current = paused;
+    lockSolvedRef.current = lockSolved;
+  }, [paused, lockSolved]);
 
   const placeAt = useCallback(
     (spawn: SpawnPoint) => {
@@ -276,17 +324,22 @@ function Player({
   }, [scene, placeAt]);
 
   // Pressing is triggered from click (page level) and from KeyE (here), so the
-  // handler lives in a ref both paths can reach.
+  // handler lives in a ref both paths can reach. What it does depends on what
+  // the crosshair is aimed at: the button wins the run, the lock panel opens
+  // the keypad.
   const pressRef = useRef<() => void>(() => {});
   useEffect(() => {
     pressRef.current = () => {
-      if (targetingRef.current) onPress();
+      if (targetingRef.current === 'button') onPress();
+      else if (targetingRef.current === 'lock') onLockPress();
     };
     registerPress(() => pressRef.current());
-  }, [onPress, registerPress]);
+  }, [onPress, onLockPress, registerPress]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // The lock keypad owns the keyboard while it is open.
+      if (pausedRef.current) return;
       keysRef.current[e.code] = true;
       // Stop Space and the arrows from scrolling the page under the canvas.
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -304,6 +357,9 @@ function Player({
   }, []);
 
   useFrame(({ clock }, delta) => {
+    // Frozen while the lock keypad is open — no movement, deaths, or targeting.
+    if (pausedRef.current) return;
+
     const timeMs = clock.elapsedTime * 1000;
     const keys = keysRef.current;
     // Arrow keys and WASD both drive movement; left/right strafe, since mouse
@@ -350,7 +406,8 @@ function Player({
       }
     }
 
-    // Is the crosshair on the button?
+    // What is the crosshair on? The button wins the run; the lock panel opens
+    // the keypad (and goes inert once the door is open).
     const dir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     const hit = raycastVoxel(
       scene.world,
@@ -358,10 +415,12 @@ function Player({
       { x: dir.x, y: dir.y, z: dir.z },
       REACH
     );
-    const targeting = hit?.blockId === Block.Button;
-    if (targeting !== targetingRef.current) {
-      targetingRef.current = targeting;
-      onTargetChange(targeting);
+    let target: InteractTarget | null = null;
+    if (hit?.blockId === Block.Button) target = 'button';
+    else if (hit?.blockId === Block.LockPanel && !lockSolvedRef.current) target = 'lock';
+    if (target !== targetingRef.current) {
+      targetingRef.current = target;
+      onTargetChange(target);
     }
   });
 
@@ -373,15 +432,23 @@ export default function FindTheButtonCanvas({
   poseRef,
   onTargetChange,
   onFound,
+  onLockPress,
   onDeath,
   registerPress,
+  lockSolved,
+  paused,
 }: {
   scene: ConceptScene;
   poseRef: React.RefObject<Pose>;
-  onTargetChange: (targetingButton: boolean) => void;
+  onTargetChange: (target: InteractTarget | null) => void;
   onFound: () => void;
+  onLockPress: () => void;
   onDeath: (cause: DeathCause, nextSpawn: SpawnPoint) => void;
   registerPress: (fn: () => void) => void;
+  /** True once the combination is accepted — hides the door meshes. */
+  lockSolved: boolean;
+  /** True while the lock keypad is open — freezes the player. */
+  paused: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -447,6 +514,7 @@ export default function FindTheButtonCanvas({
           statesRef={trapDoorStatesRef}
           texture={textures.get(Block.TrapDoor)}
         />
+        <Doors scene={scene} open={lockSolved} texture={textures.get(Block.Door)} />
         <Lasers lasers={scene.hazards.lasers} />
         <Player
           scene={scene}
@@ -454,8 +522,11 @@ export default function FindTheButtonCanvas({
           poseRef={poseRef}
           onTargetChange={onTargetChange}
           onPress={onFound}
+          onLockPress={onLockPress}
           onDeath={onDeath}
           registerPress={registerPress}
+          lockSolved={lockSolved}
+          paused={paused}
         />
         <PointerLockControls />
       </Canvas>
